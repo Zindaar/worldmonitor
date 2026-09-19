@@ -1,6 +1,6 @@
 FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81
 WORKDIR /app
 RUN npm init -y && npm install redis@4
-COPY redis-rest-proxy.mjs .
+COPY docker/redis-rest-proxy.mjs .
 EXPOSE 80
 CMD ["node", "redis-rest-proxy.mjs"]
