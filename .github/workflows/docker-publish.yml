@@ -3,13 +3,13 @@ name: Publish Docker images
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: [''v*'']
   pull_request:
     branches: [main]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Optional tag override (e.g., v2.11.0)'
+        description: ''Optional tag override (e.g., v2.11.0)''
         required: false
         type: string
 
@@ -23,7 +23,7 @@ jobs:
       matrix:
         include:
           - context: .
-            dockerfile: docker/Dockerfile
+            dockerfile: Dockerfile
             image: worldmonitor
             platforms: linux/amd64,linux/arm64
             build-args: |
@@ -71,7 +71,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platforms }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ github.event_name != ''pull_request'' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ matrix.build-args }}
