@@ -59,8 +59,8 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=raw,value=latest,enable=${{is_default_branch}}
-            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event.inputs.tag != "" }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event.inputs.tag != '' }}
 
       - uses: docker/build-push-action@v6
         with:
