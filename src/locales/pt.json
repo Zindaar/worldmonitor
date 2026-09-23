@@ -2595,7 +2595,8 @@
       "health": {
         "evidence": "EVIDÊNCIA DE ESTADO"
       },
-      "description": "Cabo submarino de telecomunicações que transporta tráfego internacional de Internet. Estes cabos de fibra óptica constituem a espinha dorsal da conectividade global à Internet, transmitindo mais de 95% dos dados intercontinentais."
+      "description": "Cabo submarino de telecomunicações que transporta tráfego internacional de Internet. Estes cabos de fibra óptica constituem a espinha dorsal da conectividade global à Internet, transmitindo mais de 95% dos dados intercontinentais.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "O rastreamento do navio de reparo indica deslocamento ativo em direção ao local da falha.",

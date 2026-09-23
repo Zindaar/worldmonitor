@@ -24,6 +24,74 @@ const MAX_RETAINED_AGE_MS = 90 * 60 * 1000; // Same bound as the cable health se
 const NGA_CACHE_KEY = 'cable-health-nga-warnings-v2';
 const NGA_CACHE_TTL = 86400; // 24h — raw NGA warnings are stable; long TTL survives relay downtime without hammering upstream
 
+// ---- Second evidence source: cable-incident news ----
+//
+// WHY THIS EXISTS. NGA was the only evidence source, and NGA has stopped
+// publishing. `broadcast-warn?status=A` still answers 200 with 386 "active"
+// warnings, but the newest was issued 2024-05-10 — verified 2026-09-23 against
+// the live API, and against its two sibling endpoints (`/current-warnings` and
+// `/inforce`), which are frozen at the same date. Nothing on the caller's side
+// is stale; the upstream dataset is.
+//
+// The consequence is not a visible error. Every NGA signal carries a TTL of 12h
+// to 5 days, computeHealthMap() weights by `1 - age/ttl` and drops anything that
+// reaches zero, so all 24 cable-related warnings are discarded, `cables` comes
+// out {}, and every cable on the map renders "unknown" — indistinguishable from
+// a healthy quiet day. A single-source design failed silently for 866 days.
+//
+// This adds an independent source with the same shape: a Google News RSS query
+// scoped to submarine-cable incidents, joined to cables by name. No API key, and
+// it reuses the identification machinery NGA already needed (CABLE_NAME_MAP),
+// so a headline naming a cable produces exactly the signal kinds the health
+// model already understands. NGA stays wired in: if it ever resumes, both
+// sources feed the same signal list and the better evidence wins on score.
+const NEWS_CACHE_KEY = 'cable-health-news-v1';
+const NEWS_CACHE_TTL = 3600; // 1h — headlines move slower than this, and it keeps us well inside Google News' tolerance
+const CABLE_NEWS_FEED_URL =
+  'https://news.google.com/rss/search?q=' +
+  encodeURIComponent('("submarine cable" OR "undersea cable" OR "subsea cable") (cut OR fault OR damage OR severed OR repair OR outage) when:21d') +
+  '&hl=en-US&gl=US&ceid=US:en';
+
+// A headline must look like an INCIDENT to become a signal, and must not look
+// like routine industry news. The negative list is load-bearing: the same feed
+// returns "ACE subsea cable upgraded to deliver more than 30Tbps" and "EllaLink
+// branching units to connect the Brazilian Amazon", both of which name a real
+// cable and would otherwise be published as faults.
+const NEWS_FAULT_RE = /\b(cut|cuts|severed|sever|break|breaks|broken|breakage|fault|faults|faulty|damaged?|outage|outages|disrupt(?:ed|ion|ions)?|knocked out|sabotage[ds]?)\b/i;
+const NEWS_REPAIR_RE = /\b(repair(?:s|ed|ing)?|restor(?:e|ed|ing|ation)|fix(?:ed|ing)?|splic(?:e|ed|ing)|cable ship|repair vessel)\b/i;
+const NEWS_NON_INCIDENT_RE = /\b(upgrade[sd]?|upgrading|launch(?:es|ed)?|unveil(?:s|ed)?|award(?:s|ed)?|contract|deal|plans?|planned|propos(?:e|ed|al)|invest(?:s|ed|ment)?|announce(?:s|d|ment)?|build(?:s|ing)?|construct(?:s|ion)?|to connect|connects?|expand(?:s|ed|ing)?|partner(?:s|ship)?|select(?:s|ed)?|report|guide|forum|summit|conference|webinar|market|forecast|outlook|ranking)\b/i;
+
+// Cable slugs seeded by scripts/seed-submarine-cables.mjs (CABLE_REGIONS),
+// with hyphens→underscores to give the cableId the rest of this file uses.
+// Kept here rather than imported so server code does not reach into scripts/;
+// a slug that drifts out of date costs a missed match, never a wrong one.
+const CABLE_SLUGS = [
+  '2africa', 'africa-coast-to-europe-ace', 'america-movil-submarine-cable-system-1-amx-1', 'amitie',
+  'apcn-2', 'apollo', 'apricot', 'arcos', 'asia-africa-europe-1-aae-1',
+  'asia-america-gateway-aag-cable-system', 'asia-direct-cable-adc', 'asia-pacific-gateway-apg',
+  'atlantic-crossing-1-ac-1', 'australia-japan-cable-ajc', 'australia-singapore-cable-asc',
+  'baltica', 'bifrost', 'blue', 'brusa', 'c-lion1', 'curie', 'danice',
+  'djibouti-africa-regional-express-1-dare-1', 'dunant', 'eastern-africa-submarine-system-eassy',
+  'echo', 'ellalink', 'equiano', 'europe-india-gateway-eig', 'falcon', 'farice-1', 'faster',
+  'fiber-optic-gulf-fog', 'firmina', 'flag-atlantic-1-fa-1', 'globenet', 'grace-hopper',
+  'greenland-connect', 'havfrueaec-2', 'hawaiki', 'imewe', 'india-asia-xpress-iax', 'indigo-west',
+  'japan-guam-australia-south-jga-s', 'jupiter', 'lower-indian-ocean-network-lion', 'mainone',
+  'malbec', 'marea', 'monet', 'new-cross-pacific-ncp-cable-system', 'no-uk', 'nuvem',
+  'pacific-crossing-1-pc-1', 'pacific-light-cable-network-plcn', 'peace-cable',
+  'project-waterworth', 'raman', 'safe', 'sat-3wasc', 'sea-us', 'seabras-1', 'seamewe-4',
+  'seamewe-5', 'seamewe-6', 'shefa-2', 'south-america-1-sam-1',
+  'south-atlantic-cable-system-sacs', 'south-atlantic-inter-link-sail',
+  'southeast-asia-japan-cable-2-sjc2', 'southeast-asia-japan-cable-sjc',
+  'southern-cross-cable-network-sccn', 'southern-cross-next', 'tata-tgn-atlantic-south',
+  'tata-tgn-gulf', 'tata-tgn-western-europe', 'the-east-african-marine-system-teams', 'topaz',
+  'trans-pacific-express-tpe-cable-system', 'unity', 'west-africa-cable-system-wacs',
+];
+
+// Multi-word slugs that the two derivation rules below would still accept but
+// which are too generic to match safely in a headline. Single-word slugs need no
+// entry here — rule 1 excludes them all.
+const UNSAFE_AUTO_ALIASES = new Set(['no-uk', 'sea-us']);
+
 // In-memory fallback: serves stale data when both Redis and NGA are down
 let fallbackCache: GetCableHealthResponse | null = null;
 let inflight: Promise<GetCableHealthResponse> | null = null;
@@ -218,6 +286,118 @@ export function matchCableByName(text: string): string | null {
   return null;
 }
 
+// ---- Auto-derived aliases from the seeded slug list ----
+//
+// CABLE_NAME_MAP is hand-maintained and covers 57 aliases across ~45 cables;
+// the seeder carries 80. Rather than grow the hand map, derive aliases from the
+// slugs — but only where the slug itself proves the alias is distinctive.
+//
+// TWO RULES, both learned from a false positive caught in testing:
+//
+//  1. MULTI-WORD SLUGS ONLY. A one-word slug ('faster', 'apollo', 'unity',
+//     'blue', 'echo', 'safe') is indistinguishable from ordinary prose — an
+//     auto-derived /\bfaster\b/ would claim a cable from any headline using the
+//     word. Single-word cables stay in CABLE_NAME_MAP, where a human checked
+//     that the name is safe to match.
+//
+//  2. AN ACRONYM MUST BE THE INITIALS OF THE WORDS BEFORE IT. The first attempt
+//     took any short trailing token, which turned 'peace-cable' into the alias
+//     /\bcable\b/ and attached every headline in the feed to PEACE. Requiring
+//     'australia-singapore-cable-asc' -> a,s,c = "asc" keeps the real acronyms
+//     (ASC, WACS, SCCN, LION, SAIL) and rejects the trailing plain words
+//     ('-cable', '-west', '-gulf', '-next', '-system').
+//
+// When a trailing acronym IS confirmed, it is stripped from the long-form alias
+// as well, so "Vocus Australia-Singapore Cable Break" matches on the name.
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** The trailing slug token, when it is exactly the initials of the tokens before it. */
+export function trailingAcronym(slug: string): string | null {
+  const parts = slug.split('-').filter(Boolean);
+  if (parts.length < 2) return null;
+  const last = parts[parts.length - 1]!;
+  if (!/^[a-z]{2,6}$/.test(last)) return null;
+  const initials = parts.slice(0, -1).map((p) => p[0]).join('');
+  return initials === last ? last : null;
+}
+
+interface CableAlias {
+  pattern: RegExp;
+  cableId: string;
+  /** Exact curated names are trusted more than machine-derived acronyms. */
+  precision: 'name' | 'acronym';
+}
+
+function buildAutoAliases(): CableAlias[] {
+  const out: CableAlias[] = [];
+  for (const slug of CABLE_SLUGS) {
+    if (UNSAFE_AUTO_ALIASES.has(slug)) continue;
+    const parts = slug.split('-').filter(Boolean);
+    if (parts.length < 2) continue; // rule 1
+    const cableId = slug.replace(/-/g, '_');
+
+    const acr = trailingAcronym(slug); // rule 2
+    const nameParts = acr ? parts.slice(0, -1) : parts;
+    const longForm = nameParts.join(' ');
+    if (nameParts.length >= 2 && longForm.length >= 6) {
+      out.push({
+        pattern: new RegExp(`\\b${escapeRe(longForm).replace(/\s+/g, '[\\s-]+')}\\b`, 'i'),
+        cableId,
+        precision: 'name',
+      });
+    }
+    if (acr && acr.length >= 3) {
+      out.push({ pattern: new RegExp(`\\b${acr}\\b`, 'i'), cableId, precision: 'acronym' });
+    }
+  }
+  return out;
+}
+
+const _autoAliases = buildAutoAliases();
+
+// Curated aliases that are also ordinary English words. CABLE_NAME_MAP was
+// written against NGA broadcast warnings — formal maritime notices where
+// "FASTER" or "APOLLO" in running text is almost certainly the cable. News
+// headlines are not that: "Engineers restored service faster than expected"
+// would otherwise be filed as an incident on the FASTER cable. These aliases
+// still work, but only in text that is demonstrably about cables, and they
+// carry the lower 'acronym' confidence.
+const AMBIGUOUS_CURATED_ALIASES = new Set([
+  'FASTER', 'APOLLO', 'FLAG', 'INDIGO', 'JUPITER', 'FALCON', 'APRICOT',
+  'CURIE', 'MONET', 'RAMAN', 'ARCOS', 'SAFE CABLE',
+]);
+
+const _curatedNewsAliases: CableAlias[] = Object.entries(CABLE_NAME_MAP).map(([name, cableId]) => ({
+  pattern: new RegExp(`\\b${name.replace(/[-/]/g, '\\$&')}\\b`, 'i'),
+  cableId,
+  precision: AMBIGUOUS_CURATED_ALIASES.has(name) ? 'acronym' : 'name',
+}));
+
+/**
+ * Resolve a cable from free text, for the news source.
+ *
+ * Unambiguous names win outright. Everything weaker — a machine-derived
+ * acronym, or a curated name that is also an English word — is accepted only
+ * where the text actually mentions a cable, and is reported at lower precision
+ * so the caller can discount it.
+ *
+ * This is deliberately stricter than matchCableByName(), which NGA still uses
+ * unchanged: a broadcast warning has already established its own context.
+ */
+export function matchCableInText(text: string): { cableId: string; precision: 'name' | 'acronym' } | null {
+  const mentionsCable = /\b(cable|subsea|submarine)\b/i.test(text);
+  let weakHit: { cableId: string; precision: 'acronym' } | null = null;
+
+  for (const alias of [..._curatedNewsAliases, ..._autoAliases]) {
+    if (!alias.pattern.test(text)) continue;
+    if (alias.precision === 'name') return { cableId: alias.cableId, precision: 'name' };
+    if (mentionsCable && !weakHit) weakHit = { cableId: alias.cableId, precision: 'acronym' };
+  }
+  return weakHit;
+}
+
 export function findNearestCable(lat: number, lon: number): { cableId: string; distanceKm: number } | null {
   let bestId: string | null = null;
   let bestDist = Infinity;
@@ -343,6 +523,123 @@ export function processNgaSignals(warnings: NgaWarning[]): Signal[] {
 }
 
 // ========================================================================
+// Cable-incident news source
+// ========================================================================
+
+export interface CableNewsItem {
+  title: string;
+  /** epoch ms, 0 when the feed gave no parseable date */
+  ts: number;
+  source: string;
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
+/** Minimal RSS reader — one regex pass, no XML dependency for a 20-field feed. */
+export function parseCableNewsFeed(xml: string): CableNewsItem[] {
+  const items: CableNewsItem[] = [];
+  for (const m of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
+    const block = m[1] ?? '';
+    const rawTitle = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(block)?.[1] ?? '';
+    const title = decodeEntities(rawTitle);
+    if (!title) continue;
+    const rawDate = /<pubDate\b[^>]*>([\s\S]*?)<\/pubDate>/i.exec(block)?.[1] ?? '';
+    const parsed = Date.parse(decodeEntities(rawDate));
+    const source = decodeEntities(/<source\b[^>]*>([\s\S]*?)<\/source>/i.exec(block)?.[1] ?? '') || 'News';
+    items.push({ title, ts: Number.isNaN(parsed) ? 0 : parsed, source });
+  }
+  return items;
+}
+
+async function fetchCableNews(): Promise<CableNewsItem[] | null> {
+  try {
+    const res = await fetch(CABLE_NEWS_FEED_URL, {
+      headers: { 'User-Agent': CHROME_UA },
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+    if (!res.ok) return null; // same contract as fetchNgaWarnings: never cache a failure
+    const items = parseCableNewsFeed(await res.text());
+    return items.length > 0 ? items : null; // an empty parse is a parse failure, not "no incidents"
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Turn cable-incident headlines into the same Signal shape NGA produces.
+ *
+ * Confidence is deliberately below NGA's for the equivalent claim: an NGA
+ * broadcast warning is an operator notice, a headline is a report about one.
+ * A clear fault headline still scores 1.0 x 0.85 = 0.85, which clears the 0.80
+ * FAULT threshold while fresh and decays through DEGRADED to OK as it ages —
+ * so a real cut shows as a fault, and a stale one stops shouting on its own.
+ */
+export function processNewsSignals(items: CableNewsItem[], now: number = Date.now()): Signal[] {
+  const signals: Signal[] = [];
+
+  for (const item of items) {
+    const text = item.title;
+    // A dateless item cannot be aged, and an undated fault would never expire.
+    if (!item.ts) continue;
+    // Guard against a feed clock ahead of ours; treat the future as now.
+    const ts = Math.min(item.ts, now);
+
+    const match = matchCableInText(text);
+    if (!match) continue;
+
+    const isFault = NEWS_FAULT_RE.test(text);
+    const isRepair = NEWS_REPAIR_RE.test(text);
+    if (!isFault && !isRepair) continue;
+    // Routine industry news that merely contains an incident word
+    // ("...repair vessel contract awarded") must not become an incident.
+    if (NEWS_NON_INCIDENT_RE.test(text) && !isFault) continue;
+
+    const acronymPenalty = match.precision === 'acronym' ? 0.15 : 0;
+    const summary = `${text} (${item.source})`;
+
+    if (isFault) {
+      signals.push({
+        cableId: match.cableId,
+        ts,
+        severity: 1.0,
+        confidence: Math.max(0.3, 0.85 - acronymPenalty),
+        // Much longer than NGA's 5d, because the underlying condition lasts that
+        // long: a cut cable is typically weeks from repair, and reporting lags
+        // the break by days. 21d matches the feed's own lookback window, so a
+        // fault stays represented for as long as we can still see the headline.
+        ttlSeconds: 21 * 86400,
+        kind: 'operator_fault',
+        evidence: [{ source: 'NEWS', summary: `Fault reported: ${summary}`, ts }],
+      });
+    } else {
+      signals.push({
+        cableId: match.cableId,
+        ts,
+        severity: 0.8,
+        confidence: Math.max(0.3, 0.6 - acronymPenalty),
+        ttlSeconds: 10 * 86400, // a repair campaign runs for days to weeks
+        kind: 'repair_activity',
+        evidence: [{ source: 'NEWS', summary: `Repair activity: ${summary}`, ts }],
+      });
+    }
+  }
+
+  return signals;
+}
+
+// ========================================================================
 // Health computation
 // ========================================================================
 
@@ -385,12 +682,21 @@ export function computeHealthMap(signals: Signal[]): Record<string, CableHealthR
       (s) => s.kind === 'repair_activity' && s.effective >= 0.40,
     );
 
+    // A fault signal that is still inside its TTL means the cable is believed to
+    // be damaged; the decay expresses fading CONFIDENCE in the report, not the
+    // cable coming back. Without this floor a confirmed break reported 16 days
+    // ago scores 0.16 and renders "OK" — a worse answer than saying nothing.
+    // It decays to OK only once the signal expires entirely.
+    const hasLiveOperatorFault = effectiveSignals.some((s) => s.kind === 'operator_fault');
+
     let status: CableHealthStatus;
     if (topScore >= 0.80 && hasOperatorFault) {
       status = 'CABLE_HEALTH_STATUS_FAULT';
     } else if (topScore >= 0.80 && hasRepairActivity) {
       status = 'CABLE_HEALTH_STATUS_DEGRADED';
     } else if (topScore >= 0.50) {
+      status = 'CABLE_HEALTH_STATUS_DEGRADED';
+    } else if (hasLiveOperatorFault) {
       status = 'CABLE_HEALTH_STATUS_DEGRADED';
     } else {
       status = 'CABLE_HEALTH_STATUS_OK';
@@ -471,10 +777,23 @@ async function loadCableHealth(): Promise<GetCableHealthResponse> {
   }
   try {
     // Refresh by age while the previous canonical payload remains available to
-    // health/bootstrap readers. The entire load is coalesced, including NGA cache hits.
-    const ngaData = await cachedFetchJson<NgaWarning[]>(NGA_CACHE_KEY, NGA_CACHE_TTL, fetchNgaWarnings);
-    if (ngaData !== null) {
-      const signals = processNgaSignals(ngaData);
+    // health/bootstrap readers. The entire load is coalesced, including cache hits.
+    //
+    // Both sources are optional and independent. Either one succeeding is enough
+    // to publish: when NGA went dark its null return used to abort the whole
+    // refresh, so a second source that only ran after it would never have run.
+    const [ngaData, newsData] = await Promise.all([
+      cachedFetchJson<NgaWarning[]>(NGA_CACHE_KEY, NGA_CACHE_TTL, fetchNgaWarnings)
+        .catch(() => null),
+      cachedFetchJson<CableNewsItem[]>(NEWS_CACHE_KEY, NEWS_CACHE_TTL, fetchCableNews)
+        .catch(() => null),
+    ]);
+
+    if (ngaData !== null || newsData !== null) {
+      const signals = [
+        ...(ngaData ? processNgaSignals(ngaData) : []),
+        ...(newsData ? processNewsSignals(newsData) : []),
+      ];
       const cables = computeHealthMap(signals);
       const result = { generatedAt: Date.now(), cables };
       await publishSnapshot(result);

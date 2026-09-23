@@ -3024,6 +3024,7 @@
       "fault": "FAULT",
       "degraded": "DEGRADED",
       "active": "ACTIVE",
+      "noRecentData": "NO RECENT DATA",
       "major": "MAJOR",
       "cable": "CABLE",
       "subtitle": "Undersea Fiber Optic Cable",

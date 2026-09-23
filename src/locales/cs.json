@@ -2998,7 +2998,8 @@
       "health": {
         "evidence": "DŮKAZ O STAVU"
       },
-      "description": "Podmořský telekomunikační kabel přenášející mezinárodní internetový provoz. Tyto optické kabely tvoří páteř globální internetové konektivity a přenášejí přes 95 % mezikontinentálních dat."
+      "description": "Podmořský telekomunikační kabel přenášející mezinárodní internetový provoz. Tyto optické kabely tvoří páteř globální internetové konektivity a přenášejí přes 95 % mezikontinentálních dat.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "Sledování opravárenského plavidla ukazuje aktivní nasazení k místu poruchy.",

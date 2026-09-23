@@ -2978,7 +2978,8 @@
       "health": {
         "evidence": "PREUVES D'ÉTAT"
       },
-      "description": "Câble de télécommunications sous-marin transportant le trafic Internet international. Ces câbles à fibres optiques constituent l'épine dorsale de la connectivité Internet mondiale, transmettant plus de 95 % des données intercontinentales."
+      "description": "Câble de télécommunications sous-marin transportant le trafic Internet international. Ces câbles à fibres optiques constituent l'épine dorsale de la connectivité Internet mondiale, transmettant plus de 95 % des données intercontinentales.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "Le suivi du navire de réparation indique un déploiement actif vers le site du défaut.",

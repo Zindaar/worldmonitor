@@ -2987,7 +2987,8 @@
       "health": {
         "evidence": "DOVENTE DE SĂNĂTATE"
       },
-      "description": "Cablu de telecomunicații submarin care transportă trafic internațional de internet. Aceste cabluri de fibră optică formează coloana vertebrală a conectivității globale la internet, transmitând peste 95% din datele intercontinentale."
+      "description": "Cablu de telecomunicații submarin care transportă trafic internațional de internet. Aceste cabluri de fibră optică formează coloana vertebrală a conectivității globale la internet, transmitând peste 95% din datele intercontinentale.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "Urmărirea navei de reparații indică desfășurarea activă către locul defectului.",

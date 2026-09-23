@@ -100,3 +100,16 @@ export function getCableHealthRecord(cableId: string): CableHealthRecord | undef
 export function getCableHealthMap(): Record<string, CableHealthRecord> {
   return retainedResponse()?.cables ?? {};
 }
+
+/**
+ * True when the cable-health service answered and its snapshot is still within
+ * the retention window — regardless of how many cables it reported.
+ *
+ * A cable missing from a snapshot we DID receive means "no evidence of trouble
+ * for this cable", which is a different statement from "we have no cable-health
+ * data at all". The popup needs to tell those apart: the first is honestly
+ * described as no recent data, the second is genuinely unknown.
+ */
+export function hasCableHealthData(): boolean {
+  return retainedResponse() !== null;
+}

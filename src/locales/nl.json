@@ -2578,7 +2578,8 @@
       "health": {
         "evidence": "GEZONDHEIDSBEWIJS"
       },
-      "description": "Onderzeese telecommunicatiekabel voor internationaal internetverkeer. Deze glasvezelkabels vormen de ruggengraat van de wereldwijde internetconnectiviteit en verzenden meer dan 95% van de intercontinentale gegevens."
+      "description": "Onderzeese telecommunicatiekabel voor internationaal internetverkeer. Deze glasvezelkabels vormen de ruggengraat van de wereldwijde internetconnectiviteit en verzenden meer dan 95% van de intercontinentale gegevens.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "Tracking van reparatieschip wijst op actieve inzet richting storingslocatie.",

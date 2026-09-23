@@ -3066,7 +3066,8 @@
       "health": {
         "evidence": "DOKAZI O ZDRAVLJU"
       },
-      "description": "Podmorski telekomunikacijski kabel koji prenosi međunarodni internetski promet. Ti optički kabeli čine okosicu globalne internetske povezanosti, prenoseći preko 95% međukontinentalnih podataka."
+      "description": "Podmorski telekomunikacijski kabel koji prenosi međunarodni internetski promet. Ti optički kabeli čine okosicu globalne internetske povezanosti, prenoseći preko 95% međukontinentalnih podataka.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "Praćenje broda za popravku pokazuje aktivno raspoređivanje prema mjestu kvara.",

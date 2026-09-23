@@ -5215,11 +5215,32 @@ async function startClassifySeedLoop() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Warm-ping target base URL.
+//
+// Every warm-ping below exists to keep a Redis cache warm. In the hosted
+// deployment the relay and the API are separate services, so the relay has to
+// reach the API over the public internet at api.worldmonitor.app — which is
+// what this defaults to, leaving hosted behaviour unchanged.
+//
+// A self-hosted deployment runs the API itself and shares one Redis with it.
+// There, pinging api.worldmonitor.app is worse than useless: the vendor rejects
+// the request (WORLDMONITOR_RELAY_KEY is a secret the operator generated for
+// their OWN relay↔gateway hop, not a key the vendor ever issued), so every
+// warm-ping 401s, and even if it succeeded it would warm the vendor's cache
+// rather than the operator's. Point this at the local API service instead and
+// the loops warm the cache they were written to warm.
+//
+//   WORLDMONITOR_API_BASE=http://worldmonitor.<namespace>.svc.cluster.local
+// ─────────────────────────────────────────────────────────────
+const WARM_PING_BASE = (process.env.WORLDMONITOR_API_BASE || 'https://api.worldmonitor.app').replace(/\/+$/, '');
+console.log(`[Relay] Warm-ping base URL: ${WARM_PING_BASE}`);
+
+// ─────────────────────────────────────────────────────────────
 // Service Statuses Seed — warm-pings Vercel RPC every 15 min
 // so service statuses are always cached (TTL is 30 min).
 // ─────────────────────────────────────────────────────────────
 const SERVICE_STATUSES_SEED_INTERVAL_MS = 15 * 60 * 1000; // 15 min (TTL/2)
-const SERVICE_STATUSES_RPC_URL = 'https://api.worldmonitor.app/api/infrastructure/v1/list-service-statuses';
+const SERVICE_STATUSES_RPC_URL = `${WARM_PING_BASE}/api/infrastructure/v1/list-service-statuses`;
 
 async function seedServiceStatuses() {
   try {
@@ -5975,7 +5996,7 @@ function warmPingHeaders(extra = {}) {
 // keeps CDN caching from hiding the handler from the warm-ping loop.
 // ─────────────────────────────────────────────────────────────
 const CII_WARM_PING_INTERVAL_MS = 8 * 60 * 1000; // 8 min (live cache TTL is 10 min)
-const CII_RPC_URL = 'https://api.worldmonitor.app/api/intelligence/v1/get-risk-scores';
+const CII_RPC_URL = `${WARM_PING_BASE}/api/intelligence/v1/get-risk-scores`;
 
 function ciiWarmPingUrl() {
   return `${CII_RPC_URL}?_wm_warm_ping=${Date.now()}`;
@@ -6011,7 +6032,7 @@ function startCiiWarmPingLoop() {
 // Interval matches health.js maxStaleMin (60 min) with a 2× margin.
 // ─────────────────────────────────────────────────────────────
 const CHOKEPOINT_WARM_PING_INTERVAL_MS = 30 * 60 * 1000; // 30 min
-const CHOKEPOINT_RPC_URL = 'https://api.worldmonitor.app/api/supply-chain/v1/get-chokepoint-status';
+const CHOKEPOINT_RPC_URL = `${WARM_PING_BASE}/api/supply-chain/v1/get-chokepoint-status`;
 
 async function seedChokepointWarmPing() {
   try {
@@ -6046,7 +6067,7 @@ function startChokepointWarmPingLoop() {
 // seed-meta on every live fetch; we just need to call it regularly.
 // ─────────────────────────────────────────────────────────────
 const CABLE_HEALTH_WARM_PING_INTERVAL_MS = 30 * 60 * 1000; // 30 min
-const CABLE_HEALTH_RPC_URL = 'https://api.worldmonitor.app/api/infrastructure/v1/get-cable-health';
+const CABLE_HEALTH_RPC_URL = `${WARM_PING_BASE}/api/infrastructure/v1/get-cable-health`;
 
 async function seedCableHealthWarmPing() {
   try {

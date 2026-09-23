@@ -2578,7 +2578,8 @@
       "health": {
         "evidence": "HÄLSOBEVIS"
       },
-      "description": "Undervattens telekommunikationskabel för internationell internettrafik. Dessa fiberoptiska kablar utgör ryggraden i global internetanslutning och överför över 95 % av interkontinental data."
+      "description": "Undervattens telekommunikationskabel för internationell internettrafik. Dessa fiberoptiska kablar utgör ryggraden i global internetanslutning och överför över 95 % av interkontinental data.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "Reparationsfartygets spårning indikerar aktiv utplacering mot felplatsen.",

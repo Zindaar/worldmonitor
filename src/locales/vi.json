@@ -2949,7 +2949,8 @@
       "health": {
         "evidence": "BẰNG CHỨNG TÌNH TRẠNG"
       },
-      "description": "Cáp viễn thông ngầm mang lưu lượng internet quốc tế. Các cáp quang này tạo thành xương sống kết nối internet toàn cầu, truyền tải hơn 95% dữ liệu liên lục địa."
+      "description": "Cáp viễn thông ngầm mang lưu lượng internet quốc tế. Các cáp quang này tạo thành xương sống kết nối internet toàn cầu, truyền tải hơn 95% dữ liệu liên lục địa.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "Theo dõi tàu sửa chữa cho thấy triển khai tích cực hướng về vị trí sự cố.",

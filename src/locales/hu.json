@@ -3037,7 +3037,8 @@
       "health": {
         "evidence": "EGÉSZSÉGÜGYI BIZONYÍTÉK"
       },
-      "description": "Tengeralatti telekommunikációs kábel a nemzetközi internet forgalom szállítására. Ezek a száloptikai kábelek a globális internetkapcsolat gerincét képezik, az interkontinentális adatok 95%-át továbbítják."
+      "description": "Tengeralatti telekommunikációs kábel a nemzetközi internet forgalom szállítására. Ezek a száloptikai kábelek a globális internetkapcsolat gerincét képezik, az interkontinentális adatok 95%-át továbbítják.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "A javítóhajó követésből aktív bevetés látható a hibahely felé.",

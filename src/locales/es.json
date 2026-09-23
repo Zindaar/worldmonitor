@@ -2978,7 +2978,8 @@
       "health": {
         "evidence": "EVIDENCIA DE ESTADO"
       },
-      "description": "Cable submarino de telecomunicaciones que transporta tráfico internacional de Internet. Estos cables de fibra óptica forman la columna vertebral de la conectividad global a Internet y transmiten más del 95% de los datos intercontinentales."
+      "description": "Cable submarino de telecomunicaciones que transporta tráfico internacional de Internet. Estos cables de fibra óptica forman la columna vertebral de la conectividad global a Internet y transmiten más del 95% de los datos intercontinentales.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "El rastreo del buque de reparación indica despliegue activo hacia el sitio de la falla.",

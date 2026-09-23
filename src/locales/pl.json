@@ -2997,7 +2997,8 @@
       "health": {
         "evidence": "DOWODY STANU"
       },
-      "description": "Podmorski kabel telekomunikacyjny przenoszący międzynarodowy ruch internetowy. Te kable światłowodowe stanowią szkielet globalnej łączności internetowej, przesyłając ponad 95% danych międzykontynentalnych."
+      "description": "Podmorski kabel telekomunikacyjny przenoszący międzynarodowy ruch internetowy. Te kable światłowodowe stanowią szkielet globalnej łączności internetowej, przesyłając ponad 95% danych międzykontynentalnych.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "Śledzenie statku naprawczego wskazuje na aktywne rozmieszczenie w kierunku miejsca awarii.",

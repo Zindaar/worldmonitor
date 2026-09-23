@@ -20,7 +20,7 @@ import { getWingbitsLiveFlight } from '@/services/wingbits';
 import { isFeatureAvailable } from '@/services/runtime-config';
 import { getNaturalEventIcon } from '@/services/eonet';
 import { getHotspotEscalation, getEscalationChange24h } from '@/services/hotspot-escalation';
-import { getCableHealthRecord } from '@/services/cable-health';
+import { getCableHealthRecord, hasCableHealthData } from '@/services/cable-health';
 import { nameToCountryCode } from '@/services/country-geometry';
 import { sparkline } from '@/utils/sparkline';
 import { getAuthState } from '@/services/auth-state';
@@ -2185,7 +2185,14 @@ ${isFeatureAvailable('wingbitsEnrichment') ? '<div class="wingbits-live-section"
     } else if (healthRecord?.status === 'ok') {
       statusLabel = t('popups.cable.active');
       statusBadge = 'low';
+    } else if (hasCableHealthData()) {
+      // The service answered and this cable was not in the snapshot: no source
+      // has reported anything about it recently. "Unknown" read as a failure to
+      // look; this says what actually happened.
+      statusLabel = t('popups.cable.noRecentData');
+      statusBadge = 'info';
     } else {
+      // No usable snapshot at all — the service is unreachable or stale.
       statusLabel = t('popups.unknown');
       statusBadge = 'info';
     }

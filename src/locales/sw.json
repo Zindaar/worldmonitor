@@ -3037,7 +3037,8 @@
       "health": {
         "evidence": "USHAHIDI WA AFYA"
       },
-      "description": "Kebo ya mawasiliano ya chini ya bahari inayobeba trafiki ya kimataifa ya mtandao. Kebo hizi za fiber optic huunda uti wa mgongo wa muunganisho wa mtandao wa kimataifa, na kusambaza zaidi ya 95% ya data baina ya mabara."
+      "description": "Kebo ya mawasiliano ya chini ya bahari inayobeba trafiki ya kimataifa ya mtandao. Kebo hizi za fiber optic huunda uti wa mgongo wa muunganisho wa mtandao wa kimataifa, na kusambaza zaidi ya 95% ya data baina ya mabara.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "Ufuatiliaji wa meli ya ukarabati unaonyesha uwekaji amilifu kuelekea tovuti yenye hitilafu.",

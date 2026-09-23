@@ -2978,7 +2978,8 @@
       "health": {
         "evidence": "EVIDENZE DI STATO"
       },
-      "description": "Cavo sottomarino per telecomunicazioni che trasporta traffico Internet internazionale. Questi cavi in fibra ottica costituiscono la spina dorsale della connettività Internet globale, trasmettendo oltre il 95% dei dati intercontinentali."
+      "description": "Cavo sottomarino per telecomunicazioni che trasporta traffico Internet internazionale. Questi cavi in fibra ottica costituiscono la spina dorsale della connettività Internet globale, trasmettendo oltre il 95% dei dati intercontinentali.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "Il tracciamento della nave riparatrice indica un dispiegamento attivo verso il sito del guasto.",

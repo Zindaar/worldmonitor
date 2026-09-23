@@ -2959,7 +2959,8 @@
       "health": {
         "evidence": "ZUSTANDSNACHWEIS"
       },
-      "description": "Untersee-Telekommunikationskabel für den internationalen Internetverkehr. Diese Glasfaserkabel bilden das Rückgrat der globalen Internetkonnektivität und übertragen über 95 % der interkontinentalen Daten."
+      "description": "Untersee-Telekommunikationskabel für den internationalen Internetverkehr. Diese Glasfaserkabel bilden das Rückgrat der globalen Internetkonnektivität und übertragen über 95 % der interkontinentalen Daten.",
+      "noRecentData": "NO RECENT DATA"
     },
     "repairShip": {
       "note": "Reparaturschiff-Tracking zeigt aktiven Einsatz zur Störungsstelle.",
