@@ -55,7 +55,11 @@ COPY data/ ./data/
 COPY --from=inventory-builder /workspace/scripts/shared/inventory-facts.generated.json ./scripts/shared/inventory-facts.generated.json
 
 # Never run a seed as root: these processes parse untrusted upstream payloads.
-USER node
+# NUMERIC uid, not `USER node`: Kubernetes' runAsNonRoot check cannot verify a
+# non-numeric image user and refuses the container with
+# "image has non-numeric user (node), cannot verify user is non-root".
+# 1000 is the `node` user in the official image.
+USER 1000:1000
 
 # ENTRYPOINT + empty CMD means the CronJob supplies only the script name.
 ENTRYPOINT ["node"]
