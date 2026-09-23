@@ -39,6 +39,13 @@ jobs:
             image: worldmonitor-redis-rest
             platforms: linux/amd64,linux/arm64
             build-args: ""
+          # Runs scripts/seed-*.mjs for deployments with no scheduler of their
+          # own — see the header of Dockerfile.seeder.
+          - context: .
+            dockerfile: Dockerfile.seeder
+            image: worldmonitor-seeder
+            platforms: linux/amd64,linux/arm64
+            build-args: ""
     steps:
       - uses: actions/checkout@v4
 

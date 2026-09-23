@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1.7
+# =============================================================================
+# Seed runner
+# =============================================================================
+# Runs any scripts/seed-*.mjs as a one-shot process, for deployments that have
+# no scheduler of their own.
+#
+# WHY THIS EXISTS. The repo carries ~197 seed scripts, but nothing in a
+# self-hosted deployment runs them: the relay embeds a couple of dozen seed
+# loops internally and ships exactly three seed scripts, and every other seeder
+# was driven by the hosted project's own cron. Self-hosted, that whole layer is
+# simply absent — measured on one estate, 233 of the 254 canonical seed keys
+# were missing from Redis, which surfaces as ~190 "EMPTY" checks on /api/health
+# and as panels that render nothing without ever raising an error.
+#
+# WHY NOT EXTEND Dockerfile.relay. That image COPYs each helper individually and
+# on purpose — its comments record several crash-loops caused by one missing
+# transitive import. Adding ~194 scripts with their own import graphs to that
+# list would be a standing regression risk for a process that must stay up.
+# A seed run is a short-lived process: if it dies on a bad import, one seed is
+# missing, nothing else notices. Different blast radius, different image.
+#
+# Usage: the image takes the script PATH as its argument, so one image serves
+# every CronJob.
+#   docker run --rm -e UPSTASH_REDIS_REST_URL=... -e UPSTASH_REDIS_REST_TOKEN=... \
+#     ghcr.io/zindaar/worldmonitor/worldmonitor-seeder:latest scripts/seed-portwatch.mjs
+# =============================================================================
+
+FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS inventory-builder
+WORKDIR /workspace
+COPY . .
+RUN node scripts/generate-inventory-facts.mjs
+
+FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81
+
+# curl is used by the seeders that need a non-Node TLS fingerprint, matching the
+# relay image. ca-certificates keeps HTTPS verification honest on Alpine.
+RUN apk add --no-cache curl ca-certificates
+
+WORKDIR /app
+
+# Same install flags as Dockerfile.relay: --ignore-scripts so Alpine needs no
+# build toolchain for optional native helpers.
+COPY scripts/package.json scripts/package-lock.json ./scripts/
+RUN npm ci --prefix scripts --omit=dev --omit=optional --ignore-scripts
+
+# The whole scripts/ tree, unlike the relay image. A seeder's transitive helper
+# graph is not worth enumerating by hand for 197 entry points, and a missing
+# helper here costs one failed run rather than a crash-looping service.
+COPY scripts/ ./scripts/
+COPY shared/ ./shared/
+COPY data/ ./data/
+
+# Generated at build time from the immutable context, exactly as the relay does.
+COPY --from=inventory-builder /workspace/scripts/shared/inventory-facts.generated.json ./scripts/shared/inventory-facts.generated.json
+
+# Never run a seed as root: these processes parse untrusted upstream payloads.
+USER node
+
+# ENTRYPOINT + empty CMD means the CronJob supplies only the script name.
+ENTRYPOINT ["node"]
+CMD ["--version"]

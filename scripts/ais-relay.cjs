@@ -3633,8 +3633,14 @@ const GULF_SYMBOLS = [
   { symbol: 'DFMGI.AE', name: 'Dubai Financial Market', country: 'UAE', flag: '\u{1F1E6}\u{1F1EA}', type: 'index' },
   { symbol: 'UAE', name: 'Abu Dhabi (iShares)', country: 'UAE', flag: '\u{1F1E6}\u{1F1EA}', type: 'index' },
   { symbol: 'QAT', name: 'Qatar (iShares)', country: 'Qatar', flag: '\u{1F1F6}\u{1F1E6}', type: 'index' },
-  { symbol: 'GULF', name: 'Gulf Dividend (WisdomTree)', country: 'Kuwait', flag: '\u{1F1F0}\u{1F1FC}', type: 'index' },
-  { symbol: '^MSM', name: 'Muscat MSM 30', country: 'Oman', flag: '\u{1F1F4}\u{1F1F2}', type: 'index' },
+  // GULF (WisdomTree Middle East Dividend) is delisted — Yahoo answers 404 "symbol
+  // may be delisted" on every cycle. KWT (iShares MSCI Kuwait ETF) is the live
+  // instrument for the same country and quotes normally.
+  { symbol: 'KWT', name: 'Kuwait (iShares)', country: 'Kuwait', flag: '\u{1F1F0}\u{1F1FC}', type: 'index' },
+  // ^MSM (Muscat MSX 30) REMOVED, not replaced: Yahoo carries no symbol for the
+  // Omani index — ^MSM, ^MSX30, MSX30.OM, MSX.OM, ^MSX, MSM.OM and ^MSM30 all
+  // answer 404. Oman keeps its currency line (OMRUSD=X) below. Re-add an index
+  // row only against a symbol that has been verified to quote.
   { symbol: 'SARUSD=X', name: 'Saudi Riyal', country: 'Saudi Arabia', flag: '\u{1F1F8}\u{1F1E6}', type: 'currency' },
   { symbol: 'AEDUSD=X', name: 'UAE Dirham', country: 'UAE', flag: '\u{1F1E6}\u{1F1EA}', type: 'currency' },
   { symbol: 'QARUSD=X', name: 'Qatari Riyal', country: 'Qatar', flag: '\u{1F1F6}\u{1F1E6}', type: 'currency' },
@@ -7492,9 +7498,110 @@ async function fetchRedditHotListing(subreddit, { limit = 25, legacyUserAgent } 
     source = 'public';
   }
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
-  if (!resp.ok) return { ok: false, status: resp.status, posts: [], source };
-  const data = await resp.json();
-  return { ok: true, status: resp.status, posts: (data?.data?.children || []).map(c => c.data).filter(Boolean), source };
+  if (resp.ok) {
+    const data = await resp.json();
+    return { ok: true, status: resp.status, posts: (data?.data?.children || []).map(c => c.data).filter(Boolean), source };
+  }
+  // 4. Public Atom feed — last resort, no credentials.
+  //
+  // Reddit 403s the anonymous JSON API from datacenter IPs, which took both
+  // consumers to zero records. The Atom feed at /r/<sub>/.rss is NOT behind that
+  // wall (verified 200 from the same pod and IP that gets 403 on hot.json), so it
+  // recovers the posts themselves for free.
+  //
+  // What it CANNOT recover is score, upvote_ratio and num_comments — Atom simply
+  // does not carry them. Those come back as **null, never 0**: a zero is a real
+  // value that silently poisons every score-weighted ranking downstream, and that
+  // is exactly the kind of quiet wrongness that let the cable-health feed look
+  // healthy for 866 days. Callers must branch on `source === 'rss'` and rank by
+  // something Atom actually supports. Full fidelity needs REDDIT_CLIENT_ID /
+  // REDDIT_CLIENT_SECRET (a free Reddit script app), which re-enables tier 2.
+  if (source === 'public') {
+    try {
+      const rss = await fetchRedditRssListing(subreddit, { limit, legacyUserAgent });
+      if (rss.ok && rss.posts.length) {
+        console.warn(`[Reddit] r/${subreddit}: public JSON HTTP ${resp.status}, recovered ${rss.posts.length} posts via Atom (no scores — set REDDIT_CLIENT_ID/SECRET for full fidelity)`);
+        return rss;
+      }
+    } catch (e) {
+      console.warn(`[Reddit] r/${subreddit}: Atom fallback failed: ${e?.message || e}`);
+    }
+  }
+  return { ok: false, status: resp.status, posts: [], source };
+}
+
+// Reddit's public Atom feed. Returns the same post shape as the JSON paths, with
+// the vote/comment fields explicitly null — see the tier-4 note above for why they
+// must not be 0.
+async function fetchRedditRssListing(subreddit, { limit = 25, legacyUserAgent } = {}) {
+  // Reddit meters the Atom feed at roughly ONE request per window per IP: the
+  // first call returns 200 and the next returns 429 with
+  // `x-ratelimit-remaining: 0.0` and `x-ratelimit-reset: <seconds>`. A caller
+  // that loops over subreddits with the usual 500 ms gap therefore gets exactly
+  // one subreddit and 429s for the rest — measured, and it survived a 4 s gap too.
+  // Waiting out the advertised reset clears it (both retries returned 200 after
+  // ~65 s). Seed cadences here are hours, so spending a minute is free; the cap
+  // keeps a misreported reset from parking the loop indefinitely.
+  const MAX_ATTEMPTS = 3;
+  const MAX_WAIT_MS = 90_000;
+  let resp;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    resp = await fetch(`https://www.reddit.com/r/${subreddit}/.rss?limit=${limit}`, {
+      headers: { Accept: 'application/atom+xml, application/xml;q=0.9', 'User-Agent': legacyUserAgent || REDDIT_USER_AGENT },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (resp.status !== 429 || attempt === MAX_ATTEMPTS) break;
+    const resetSec = Number(resp.headers.get('x-ratelimit-reset') || resp.headers.get('retry-after') || 0);
+    // +2s of margin: the reset is advertised in whole seconds and a request that
+    // lands on the boundary just earns another 429.
+    const waitMs = Math.min(MAX_WAIT_MS, Math.max(5_000, (Number.isFinite(resetSec) && resetSec > 0 ? resetSec : 15) * 1000 + 2_000));
+    console.warn(`[Reddit] r/${subreddit}: Atom 429 (attempt ${attempt}/${MAX_ATTEMPTS}), waiting ${Math.round(waitMs / 1000)}s`);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+  if (!resp.ok) return { ok: false, status: resp.status, posts: [], source: 'rss' };
+  const xml = await resp.text();
+  const posts = [];
+  for (const m of xml.matchAll(/<entry>([\s\S]*?)<\/entry>/gi)) {
+    const e = m[1] || '';
+    const pick = (tag) => {
+      const hit = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, 'i').exec(e);
+      return hit ? hit[1] : '';
+    };
+    const stripTags = (s) => s
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+      .replace(/&#0?39;|&apos;/g, "'").replace(/&nbsp;/g, ' ')
+      .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+      .replace(/&amp;/g, '&')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const title = stripTags(pick('title'));
+    if (!title) continue;
+    // <id>t3_abc123</id> — the same base36 id the JSON API reports, minus the kind prefix.
+    const rawId = stripTags(pick('id'));
+    const id = rawId.replace(/^t3_/, '') || rawId;
+    const href = /<link\b[^>]*href="([^"]+)"/i.exec(e)?.[1] || '';
+    let permalink = '';
+    try { permalink = href ? new URL(href).pathname : ''; } catch { permalink = ''; }
+    const updated = stripTags(pick('updated')) || stripTags(pick('published'));
+    const ts = Date.parse(updated);
+
+    posts.push({
+      id,
+      title,
+      selftext: stripTags(pick('content')),
+      permalink,
+      url: href,
+      created_utc: Number.isNaN(ts) ? 0 : Math.floor(ts / 1000),
+      score: null,
+      upvote_ratio: null,
+      num_comments: null,
+    });
+    if (posts.length >= limit) break;
+  }
+  return { ok: posts.length > 0, status: resp.status, posts, source: 'rss' };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -7572,6 +7679,7 @@ async function seedSocialVelocity() {
   try {
     const nowSec = Date.now() / 1000;
     const allPosts = [];
+    let votesAvailable = false;
     const seenUrls = new Set();
     const fetchFailures = [];
     for (const sub of REDDIT_SUBREDDITS) {
@@ -7593,17 +7701,24 @@ async function seedSocialVelocity() {
         const isExternal = articleHostname && articleHostname !== 'reddit.com' && !articleHostname.endsWith('.reddit.com');
         if (isExternal && seenUrls.has(articleUrl)) continue;
         if (isExternal) seenUrls.add(articleUrl);
+        const hasVotes = typeof p.score === 'number';
+        if (hasVotes) votesAvailable = true;
         const ageSec = Math.max(1, nowSec - (p.created_utc || nowSec));
         const recencyFactor = Math.exp(-ageSec / (6 * 3600));
+        // Without votes (Atom fallback) every term but recency collapses to a
+        // constant, so this is a recency ranking wearing a velocity label. Compute
+        // it anyway — a recent-posts list is still useful — but keep the vote fields
+        // null so nothing downstream reads an invented 0 as "nobody upvoted this",
+        // and label the payload for what it is.
         const velocityScore = Math.log1p(p.score || 1) * (p.upvote_ratio || 0.5) * recencyFactor * 100;
         allPosts.push({
           id: String(p.id || ''),
           title: String(p.title || '').slice(0, 300),
           subreddit: sub,
           url: postUrl.href,
-          score: p.score || 0,
-          upvoteRatio: p.upvote_ratio || 0,
-          numComments: p.num_comments || 0,
+          score: hasVotes ? p.score : null,
+          upvoteRatio: hasVotes ? (p.upvote_ratio || 0) : null,
+          numComments: typeof p.num_comments === 'number' ? p.num_comments : null,
           velocityScore: Math.round(velocityScore * 10) / 10,
           createdAt: Math.round((p.created_utc || nowSec) * 1000),
         });
@@ -7623,7 +7738,15 @@ async function seedSocialVelocity() {
     }
     allPosts.sort((a, b) => b.velocityScore - a.velocityScore);
     const top = allPosts.slice(0, 30);
-    const payload = { posts: top, fetchedAt: Date.now() };
+    const payload = {
+      posts: top,
+      fetchedAt: Date.now(),
+      ranking: votesAvailable ? 'vote-weighted' : 'recency-only',
+      degraded: votesAvailable ? null : 'reddit-atom-no-votes',
+    };
+    if (!votesAvailable) {
+      console.warn(`[SocialVelocity] Seeded ${top.length} posts WITHOUT vote data (Atom fallback) — ranking is recency-only. Set REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET to restore true velocity.`);
+    }
     const ok = await envelopeWrite(SOCIAL_VELOCITY_REDIS_KEY, payload, SOCIAL_VELOCITY_TTL, { recordCount: top.length, sourceVersion: 'social-reddit' });
     if (ok) {
       await writeSocialVelocityHealthyMeta(top.length);
@@ -7748,12 +7871,17 @@ async function seedWsbTickers() {
     const nowSec = Date.now() / 1000;
     const tickerMap = new Map();
     let postsScanned = 0;
+    // The Atom fallback carries no vote data (score/upvote_ratio are null, not 0).
+    // Ranking has to notice, or every ticker scores log1p(0)*n = 0 and the "top 50"
+    // becomes map-insertion order wearing a velocity label.
+    let scoresAvailable = false;
 
     for (const sub of WSB_SUBREDDITS) {
       await new Promise(r => setTimeout(r, 500));
       const posts = await fetchWsbRedditHot(sub);
       for (const p of posts) {
         postsScanned++;
+        if (typeof p.score === 'number') scoresAvailable = true;
         const text = `${p.title || ''} ${p.selftext || ''}`;
         const tickers = extractTickers(text, knownTickers);
         for (const sym of tickers) {
@@ -7799,13 +7927,18 @@ async function seedWsbTickers() {
       const uniquePosts = entry.postIds.size;
       const avgUpvoteRatio = uniquePosts > 0 ? Math.round((entry.upvoteRatioSum / uniquePosts) * 100) / 100 : 0;
       const ageFactor = 1; // all posts are "hot" (recent)
-      const velocityScore = Math.round(Math.log1p(entry.totalScore) * entry.mentionCount * ageFactor * 10) / 10;
+      // With vote data, weight mentions by how much the sub actually upvoted them.
+      // Without it (Atom fallback), rank on mention breadth alone — the one signal
+      // Atom does carry — rather than multiplying by a zero we invented.
+      const velocityScore = scoresAvailable
+        ? Math.round(Math.log1p(entry.totalScore) * entry.mentionCount * ageFactor * 10) / 10
+        : Math.round(entry.mentionCount * uniquePosts * ageFactor * 10) / 10;
       tickers.push({
         symbol: entry.symbol,
         mentionCount: entry.mentionCount,
         uniquePosts,
-        totalScore: entry.totalScore,
-        avgUpvoteRatio,
+        totalScore: scoresAvailable ? entry.totalScore : null,
+        avgUpvoteRatio: scoresAvailable ? avgUpvoteRatio : null,
         topPost: entry.topPost,
         subreddits: [...entry.subreddits],
         velocityScore,
@@ -7814,7 +7947,15 @@ async function seedWsbTickers() {
 
     tickers.sort((a, b) => b.velocityScore - a.velocityScore);
     const top = tickers.slice(0, 50);
-    const payload = { tickers: top, fetchedAt: Date.now(), subredditsScanned: WSB_SUBREDDITS.length, postsScanned };
+    const payload = {
+      tickers: top,
+      fetchedAt: Date.now(),
+      subredditsScanned: WSB_SUBREDDITS.length,
+      postsScanned,
+      // Named so a reader can tell "nobody upvoted these" from "we could not see votes".
+      ranking: scoresAvailable ? 'vote-weighted' : 'mention-count',
+      degraded: scoresAvailable ? null : 'reddit-atom-no-votes',
+    };
     const writeOk = await envelopeWrite(WSB_TICKERS_REDIS_KEY, payload, WSB_TICKERS_TTL, { recordCount: top.length, sourceVersion: 'wsb-tickers' });
     if (writeOk) {
       await upstashSet('seed-meta:intelligence:wsb-tickers', { fetchedAt: Date.now(), recordCount: top.length }, 604800);
