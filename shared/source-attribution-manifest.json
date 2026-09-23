@@ -6362,6 +6362,9 @@
           "path": "scripts/validate-rss-feeds.mjs"
         },
         {
+          "path": "server/worldmonitor/infrastructure/v1/get-cable-health.ts"
+        },
+        {
           "path": "server/worldmonitor/intelligence/v1/_country-coverage-feeds.ts"
         },
         {
