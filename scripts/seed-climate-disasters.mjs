@@ -350,7 +350,9 @@ function parseReliefWebDisastersRss(xml, now = Date.now()) {
 
 async function fetchReliefWebRss() {
   const response = await fetch(RELIEFWEB_DISASTERS_RSS, {
-    headers: { Accept: 'application/rss+xml, application/xml', 'User-Agent': CHROME_UA },
+    // ReliefWeb's bot filter answers 406 to an Accept that names RSS/XML types, even with a
+    // browser User-Agent; a plain */* passes. Measured 2026-09-25 from the cluster.
+    headers: { Accept: '*/*', 'User-Agent': CHROME_UA },
     signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) throw new Error(`ReliefWeb RSS HTTP ${response.status}`);

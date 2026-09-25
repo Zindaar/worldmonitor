@@ -109,7 +109,8 @@ export const RELIEFWEB_CLIMATE_RSS = 'https://reliefweb.int/updates/rss.xml?adva
 
 async function fetchReliefWebApi(feed) {
   const appname = (process.env.RELIEFWEB_APPNAME || process.env.RELIEFWEB_APP_NAME || '').trim();
-  if (!appname) return fetchFeed({ sourceName: feed.sourceName, url: RELIEFWEB_CLIMATE_RSS });
+  // ReliefWeb's bot filter answers 406 to an Accept naming RSS/XML types; */* passes.
+  if (!appname) return fetchFeed({ sourceName: feed.sourceName, url: RELIEFWEB_CLIMATE_RSS, accept: '*/*' });
   const qs = `appname=${encodeURIComponent(appname)}&limit=20&preset=latest&filter[field]=theme.id&filter[value]=4590&fields[include][]=title&fields[include][]=url_alias&fields[include][]=date.created&fields[include][]=source`;
   const endpoints = [
     `https://api.reliefweb.int/v1/reports?${qs}`,
@@ -146,7 +147,7 @@ async function fetchFeed(feed) {
     if (feed.isApi) return await fetchReliefWebApi(feed);
     const resp = await fetch(feed.url, {
       headers: {
-        Accept: 'application/rss+xml, application/xml, text/xml, */*',
+        Accept: feed.accept || 'application/rss+xml, application/xml, text/xml, */*',
         'User-Agent': CHROME_UA,
       },
       signal: AbortSignal.timeout(15_000),
