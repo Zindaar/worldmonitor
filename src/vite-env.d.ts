@@ -17,6 +17,8 @@ declare const __CLERK_JS_VERSION__: string;
 interface ImportMetaEnv {
   readonly VITE_SENTRY_DSN?: string;
   readonly VITE_WS_API_URL?: string;
+  /** Umami tracker URL; `off` builds with no tracker (see shared/umami-script.js). */
+  readonly VITE_UMAMI_SCRIPT_SRC?: string;
 }
 
 interface ImportMeta {

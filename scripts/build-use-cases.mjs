@@ -7,6 +7,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveUmamiScriptSrc, rewriteUmamiScriptTags } from '../shared/umami-script.js';
 
 /** Bump when hub or child copy changes so lastmod advances without touching every sibling. */
 export const USE_CASES_CONTENT_VERSION = '2026-09-10';
@@ -34,11 +35,13 @@ export const USE_CASE_PAGES = [
       'Define exposure, baseline routes and risk, detect disruption signals, test transmission paths, record uncertainty, and escalate into an exact product state.',
   },
 ];
-const UMAMI_SCRIPT_TAG =
+const UMAMI_SCRIPT_TAG = rewriteUmamiScriptTags(
   '<script async defer src="https://abacus.worldmonitor.app/script.js" '
   + 'data-website-id="e8800335-16bc-4241-a133-0eb28c07c832" '
   + 'data-domains="worldmonitor.app,www.worldmonitor.app,happy.worldmonitor.app" '
-  + 'nonce="wm-static-bootstrap"></script>';
+  + 'nonce="wm-static-bootstrap"></script>',
+  resolveUmamiScriptSrc(process.env.VITE_UMAMI_SCRIPT_SRC),
+);
 
 export const HANDOFF_PRESERVE_SCRIPT = `(() => {
   const PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];

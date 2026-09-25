@@ -139,9 +139,6 @@
       "references": [
         {
           "path": "scripts/check-analytics-collector.mjs"
-        },
-        {
-          "path": "src/services/analytics.ts"
         }
       ]
     },
@@ -7278,9 +7275,6 @@
       "attribution": "Excluded from the external-provider count: first-party proxy endpoint.",
       "status": "excluded",
       "references": [
-        {
-          "path": "api/widget-agent.ts"
-        },
         {
           "path": "scripts/seed-security-advisories.mjs"
         },

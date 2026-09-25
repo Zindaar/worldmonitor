@@ -19,6 +19,11 @@ RUN npm ci --ignore-scripts
 # Copy full source
 COPY . .
 
+# Self-hosted builds pass VITE_UMAMI_SCRIPT_SRC=off and ship with no Umami
+# tracker on any surface (shared/umami-script.js). Unset keeps the hosted one.
+# Declared before the corpus step because its page generators emit the tag too.
+ARG VITE_UMAMI_SCRIPT_SRC
+
 # The crawlable-corpus step runs the source-attribution drift gate against
 # scripts/, server/, api/, and src/. generate-inventory-facts and
 # build-handlers write untracked .js into those same roots, so the gate must

@@ -26,9 +26,12 @@ jobs:
             dockerfile: Dockerfile
             image: worldmonitor
             platforms: linux/amd64,linux/arm64
+            # VITE_WS_API_URL was passed here pointing at the vendor API, but the
+            # Dockerfile declares no such ARG, so it never reached the build.
+            # Dropped rather than left to read as if the image were cloud-backed.
             build-args: |
               VITE_VARIANT=full
-              VITE_WS_API_URL=https://api.worldmonitor.app
+              VITE_UMAMI_SCRIPT_SRC=off
           - context: .
             dockerfile: Dockerfile.relay
             image: worldmonitor-ais-relay

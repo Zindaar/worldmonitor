@@ -8,6 +8,7 @@ import {
   migrateLegacyKeysToHttpOnlySession,
   readLegacySessionKey,
 } from '@/services/browser-key-session';
+import { subscribeWmKeyAccess } from '@/services/wm-session';
 
 const STORAGE_KEY = 'wm-custom-widgets';
 const MAX_WIDGETS = 10;
@@ -200,6 +201,63 @@ export function setProKey(key: string): void {
   }
   void migrateLegacyKeysToHttpOnlySession({ proKey: trimmed })
     .catch(() => { /* caller can retry; no new JS-readable write */ });
+}
+
+// The server reports on every session mint whether this browser still holds a
+// valid key cookie. Upgrade-only: a mint that was already in flight when a key
+// was entered can report `false` for a key this tab has just set, and a real
+// revocation takes effect on the next load anyway.
+subscribeWmKeyAccess((access) => {
+  const widget = widgetSessionHint || access.widget;
+  const pro = proSessionHint || access.pro;
+  if (widget === widgetSessionHint && pro === proSessionHint) return;
+  widgetSessionHint = widget;
+  proSessionHint = pro;
+  notifyAccessChanged();
+});
+
+const KEY_FRAGMENT_PARAMS = { pro: 'wm-pro-key', widget: 'wm-widget-key' } as const;
+
+/**
+ * Take a tester key from the URL fragment, once: `#wm-pro-key=<key>` and/or
+ * `#wm-widget-key=<key>`.
+ *
+ * This is how a self-hosted operator unlocks Pro. Docker mode has no Clerk or
+ * Convex, so no sign-in can ever grant it; the server instead accepts the
+ * operator's own PRO_WIDGET_KEY / WIDGET_AGENT_KEY. A fragment is used because
+ * it is never sent to the server, so the key cannot land in an access log. It
+ * is stripped from the address bar before the exchange, and from then on
+ * lives only in the HttpOnly cookie /api/wm-session sets and renews.
+ *
+ * Resolves true when a key was found and accepted.
+ */
+export async function consumeKeyFragment(): Promise<boolean> {
+  if (typeof window === 'undefined' || !window.location.hash) return false;
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const proKey = params.get(KEY_FRAGMENT_PARAMS.pro)?.trim() ?? '';
+  const widgetKey = params.get(KEY_FRAGMENT_PARAMS.widget)?.trim() ?? '';
+  if (!proKey && !widgetKey) return false;
+
+  params.delete(KEY_FRAGMENT_PARAMS.pro);
+  params.delete(KEY_FRAGMENT_PARAMS.widget);
+  const rest = params.toString();
+  try {
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}${window.location.search}${rest ? `#${rest}` : ''}`,
+    );
+  } catch { /* the exchange below is still worth attempting */ }
+
+  const accepted = await migrateLegacyKeysToHttpOnlySession({
+    ...(widgetKey ? { widgetKey } : {}),
+    ...(proKey ? { proKey } : {}),
+  }).catch(() => false);
+  if (!accepted) return false;
+  if (widgetKey) widgetSessionHint = true;
+  if (proKey) proSessionHint = true;
+  notifyAccessChanged();
+  return true;
 }
 
 export function isWidgetFeatureEnabled(): boolean {

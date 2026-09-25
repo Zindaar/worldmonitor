@@ -138,6 +138,27 @@ async function isValidProKey(key) {
   return (await matchesEnvSecret(key, 'PRO_WIDGET_KEY')) || await isValidEnterpriseKey(key);
 }
 
+/**
+ * The tester-key cookie this request already carries, if it still validates.
+ *
+ * The cookie is HttpOnly, so after a reload the client has no way to learn it
+ * still holds Pro or widget access — the tab-local hint in widget-store.ts
+ * dies with the page. Reporting it back (`proAccess` / `widgetAccess`) is what
+ * lets a self-hosted operator, with no Clerk or Convex, stay unlocked.
+ *
+ * @returns {Promise<{ key: string, stale: boolean }>} `stale` when a cookie was
+ *   presented but no longer validates (key rotated or removed from env).
+ */
+async function heldKeyCookie(req, name, isValid) {
+  const presented = normalizeLegacyKey(readCookie(req, name));
+  if (!presented) return { key: '', stale: false };
+  return (await isValid(presented)) ? { key: presented, stale: false } : { key: '', stale: true };
+}
+
+function expiredCookie(req, name) {
+  return `${name}=; Path=/; Max-Age=0${cookieDomainAttribute(req)}; HttpOnly; Secure; SameSite=Lax`;
+}
+
 const BODY_READ_TIMEOUT_MS = Number(process.env.WM_SESSION_BODY_TIMEOUT_MS) || 5_000;
 
 async function readBody(req) {
@@ -253,6 +274,17 @@ export default async function handler(req, ctx) {
     headers = appendHeader(headers, 'Set-Cookie', sessionCookie(req, PRO_KEY_COOKIE, proKey));
   }
 
+  // A key cookie that arrived and still validates is renewed, so access lasts
+  // as long as the dashboard keeps being opened rather than 12 h from the day
+  // the key was entered. One that no longer validates is expired, so a rotated
+  // key does not linger as a cookie every request re-checks and rejects.
+  const heldWidget = widgetKey ? { key: widgetKey, stale: false } : await heldKeyCookie(req, WIDGET_KEY_COOKIE, isValidWidgetKey);
+  const heldPro = proKey ? { key: proKey, stale: false } : await heldKeyCookie(req, PRO_KEY_COOKIE, isValidProKey);
+  if (!widgetKey && heldWidget.key) headers = appendHeader(headers, 'Set-Cookie', sessionCookie(req, WIDGET_KEY_COOKIE, heldWidget.key));
+  if (!proKey && heldPro.key) headers = appendHeader(headers, 'Set-Cookie', sessionCookie(req, PRO_KEY_COOKIE, heldPro.key));
+  if (heldWidget.stale) headers = appendHeader(headers, 'Set-Cookie', expiredCookie(req, WIDGET_KEY_COOKIE));
+  if (heldPro.stale) headers = appendHeader(headers, 'Set-Cookie', expiredCookie(req, PRO_KEY_COOKIE));
+
   // The HttpOnly cookie remains the primary transport. The anonymous token is
   // also returned so browsers that demonstrably refuse the shared-domain
   // cookie can use the existing X-WorldMonitor-Key validation path. This does
@@ -263,5 +295,8 @@ export default async function handler(req, ctx) {
     exp: issued.exp,
     hadSession,
     token: issued.token,
+    // Booleans only — the keys themselves never leave the HttpOnly cookies.
+    widgetAccess: Boolean(heldWidget.key),
+    proAccess: Boolean(heldPro.key),
   }, 200, headers, 'ok');
 }

@@ -601,6 +601,31 @@ function isBrowserIssuedAbort(err: unknown, signal: AbortSignal): boolean {
     && (err as { name?: unknown }).name === 'AbortError';
 }
 
+/**
+ * Whether this browser holds a valid tester-key cookie, as /api/wm-session
+ * reports on every mint. The cookies are HttpOnly, so this is the only way the
+ * page learns after a reload that it still has Pro or widget access —
+ * widget-store.ts subscribes. Kept as a listener set rather than an import of
+ * widget-store, which already depends on this module.
+ */
+export interface WmKeyAccess {
+  widget: boolean;
+  pro: boolean;
+}
+
+const keyAccessListeners = new Set<(access: WmKeyAccess) => void>();
+
+export function subscribeWmKeyAccess(listener: (access: WmKeyAccess) => void): () => void {
+  keyAccessListeners.add(listener);
+  return () => keyAccessListeners.delete(listener);
+}
+
+function publishKeyAccess(access: WmKeyAccess): void {
+  for (const listener of keyAccessListeners) {
+    try { listener(access); } catch { /* a listener must not break the mint */ }
+  }
+}
+
 async function mintSession(body?: { widgetKey?: string; proKey?: string }): Promise<MintOutcome> {
   // Sampled BEFORE the request leaves, not when it returns: concurrent mints
   // would otherwise let the first response to land make the others look like
@@ -634,9 +659,9 @@ async function mintSession(body?: { widgetKey?: string; proKey?: string }): Prom
     // A body we cannot parse or that carries no usable expiry is the server
     // answering with something unusable — also session-wide, and NOT a
     // transport failure, so it must not inherit the retry below.
-    let data: { exp?: unknown; hadSession?: unknown; token?: unknown };
+    let data: { exp?: unknown; hadSession?: unknown; token?: unknown; widgetAccess?: unknown; proAccess?: unknown };
     try {
-      data = await resp.json() as { exp?: unknown; hadSession?: unknown; token?: unknown };
+      data = await resp.json() as typeof data;
     } catch {
       return { ok: false, cause: 'malformed' };
     }
@@ -650,6 +675,10 @@ async function mintSession(body?: { widgetKey?: string; proKey?: string }): Prom
       if (typeof data.hadSession === 'boolean') {
         noteMintCookieEvidence(data.hadSession, aCookieExistedWhenSent);
       }
+    }
+    // Absent on a server that predates the fields: no evidence, publish nothing.
+    if (typeof data.widgetAccess === 'boolean' && typeof data.proAccess === 'boolean') {
+      publishKeyAccess({ widget: data.widgetAccess, pro: data.proAccess });
     }
     return { ok: true, session: { exp: data.exp } };
   } catch (err) {

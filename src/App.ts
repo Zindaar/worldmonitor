@@ -52,7 +52,7 @@ import {
   stopFlightHistoryCleanup,
 } from '@/services';
 import { enableVesselRuntime, stopLoadedVesselHistoryCleanup } from '@/services/military-vessels-lazy';
-import { isProUser, isProTierResolved, loadWidgets } from '@/services/widget-store';
+import { consumeKeyFragment, isProUser, isProTierResolved, loadWidgets } from '@/services/widget-store';
 import { mlWorker } from '@/services/ml-worker';
 import { getAiFlowSettings, subscribeAiFlowChange, isHeadlineMemoryEnabled } from '@/services/ai-flow-settings';
 import { startLearning } from '@/services/country-instability';
@@ -2578,6 +2578,10 @@ export class App {
       // `.catch(console.error)`, so it would not even reach Sentry. Session
       // establishment is best-effort at this point; the refresh-on-401 layer is
       // the safety net.
+      // A `#wm-pro-key=` fragment (self-hosted Pro unlock) goes first: a
+      // successful key mint leaves a fresh session, so ensureWmSession() below
+      // does not mint a second, anonymous one.
+      await consumeKeyFragment().catch(() => false);
       await ensureWmSession().catch(() => false);
       markLcpDebug('wm:boot:session-ready');
     }

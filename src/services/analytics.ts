@@ -29,6 +29,7 @@ import {
   withContentAttribution,
 } from '../../shared/content-attribution';
 import { MISSION_PRESET_IDS } from '../../shared/mission-domain';
+import { resolveUmamiScriptSrc } from '../../shared/umami-script';
 import {
   isCheckoutSurface,
   parseCheckoutContext,
@@ -48,8 +49,12 @@ export type {
   CheckoutSurface,
 } from '../../shared/checkout-attribution';
 
-const UMAMI_SCRIPT_SRC = 'https://abacus.worldmonitor.app/script.js';
-const UMAMI_COLLECTOR_ENDPOINT = new URL('/api/send', UMAMI_SCRIPT_SRC).href;
+// `VITE_UMAMI_SCRIPT_SRC=off` builds with no tracker (shared/umami-script.js).
+// `env?.` because the analytics tests load this module under plain Node, where
+// Vite has not populated import.meta.env.
+const UMAMI_SCRIPT_SRC = resolveUmamiScriptSrc(import.meta.env?.VITE_UMAMI_SCRIPT_SRC);
+const UMAMI_ENABLED = UMAMI_SCRIPT_SRC !== '';
+const UMAMI_COLLECTOR_ENDPOINT = UMAMI_ENABLED ? new URL('/api/send', UMAMI_SCRIPT_SRC).href : '';
 const UMAMI_WEBSITE_ID = 'e8800335-c853-46a8-8497-c993ed2f58bc';
 // data-domains is temporarily reduced to the worldmonitor.app hosts + happy
 // while upstream Umami issue #4183 (https://github.com/umami-software/umami/issues/4183)
@@ -326,6 +331,8 @@ function isReplayedCheckoutStart(requestBody: string | undefined): boolean {
 }
 
 function queueUmamiCall(call: QueuedUmamiCall): void {
+  // With the tracker disabled nothing will ever drain the queue.
+  if (!UMAMI_ENABLED) return;
   // Identity is a latest-snapshot write, not an append-only event. Auth and
   // billing can both publish before the deferred tracker loads; replaying every
   // intermediate snapshot concurrently is both wasteful and the trigger for
@@ -604,6 +611,7 @@ export function trackContentHandoff(): void {
 }
 
 export function initAnalytics(): void {
+  if (!UMAMI_ENABLED) return;
   if (umamiLoadScheduled || typeof window === 'undefined' || typeof document === 'undefined') return;
   umamiLoadScheduled = true;
   scheduleAfterFirstPaint(loadUmamiScript, 3000);

@@ -73,8 +73,18 @@ async function loadWidgetStore(): Promise<WidgetStore> {
     `],
     ['browser-key-session-stub', `
       export function clearLegacyKeyStorage() {}
-      export function migrateLegacyKeysToHttpOnlySession() { return Promise.resolve(); }
+      export function migrateLegacyKeysToHttpOnlySession(keys) {
+        globalThis.__migratedKeys = globalThis.__migratedKeys || [];
+        globalThis.__migratedKeys.push(keys);
+        return Promise.resolve(globalThis.__migrateResult);
+      }
       export function readLegacySessionKey() { return ''; }
+    `],
+    ['wm-session-stub', `
+      export function subscribeWmKeyAccess(listener) {
+        globalThis.__keyAccessListener = listener;
+        return () => {};
+      }
     `],
   ]);
 
@@ -85,6 +95,7 @@ async function loadWidgetStore(): Promise<WidgetStore> {
     ['@/services/auth-state', 'auth-state-stub'],
     ['@/services/entitlements', 'entitlements-stub'],
     ['@/services/browser-key-session', 'browser-key-session-stub'],
+    ['@/services/wm-session', 'wm-session-stub'],
   ]);
 
   const result = await build({
@@ -303,5 +314,94 @@ describe('widget-store PRO persistence', () => {
     const widgets = loadWidgets();
 
     assert.equal(widgets.length, 0);
+  });
+});
+
+describe('widget-store self-hosted key unlock', () => {
+  const windowSnapshot = snapshotGlobal('window');
+
+  function installWindow(hash: string): { replaced: string[] } {
+    const replaced: string[] = [];
+    const location = { hash, pathname: '/dashboard', search: '?variant=full' };
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        location,
+        history: {
+          state: null,
+          replaceState(_state: unknown, _title: string, url: string) {
+            replaced.push(url);
+            const hashAt = url.indexOf('#');
+            location.hash = hashAt === -1 ? '' : url.slice(hashAt);
+          },
+        },
+      },
+    });
+    return { replaced };
+  }
+
+  afterEach(() => {
+    restoreGlobal('window', windowSnapshot);
+    const g = globalThis as Record<string, unknown>;
+    delete g.__migrateResult;
+    delete g.__migratedKeys;
+    delete g.__keyAccessListener;
+  });
+
+  it('exchanges a #wm-pro-key fragment, strips it, and unlocks Pro', async () => {
+    installLocalStorage();
+    const { replaced } = installWindow('#wm-pro-key=operator-key&panel=markets');
+    (globalThis as Record<string, unknown>).__migrateResult = true;
+    const store = await loadWidgetStore();
+    assert.equal(store.isProWidgetEnabled(), false);
+
+    assert.equal(await store.consumeKeyFragment(), true);
+
+    assert.deepEqual((globalThis as Record<string, unknown>).__migratedKeys, [{ proKey: 'operator-key' }]);
+    assert.deepEqual(replaced, ['/dashboard?variant=full#panel=markets'], 'only the key param is removed');
+    assert.equal(store.isProWidgetEnabled(), true);
+    assert.equal(store.isWidgetFeatureEnabled(), false);
+  });
+
+  it('strips the key even when the server rejects it, and stays locked', async () => {
+    installLocalStorage();
+    const { replaced } = installWindow('#wm-pro-key=wrong');
+    (globalThis as Record<string, unknown>).__migrateResult = false;
+    const store = await loadWidgetStore();
+
+    assert.equal(await store.consumeKeyFragment(), false);
+
+    assert.deepEqual(replaced, ['/dashboard?variant=full'], 'a rejected key must not stay in the address bar');
+    assert.equal(store.isProWidgetEnabled(), false);
+  });
+
+  it('does nothing without a key fragment', async () => {
+    installLocalStorage();
+    const { replaced } = installWindow('#panel=markets');
+    const store = await loadWidgetStore();
+
+    assert.equal(await store.consumeKeyFragment(), false);
+
+    assert.equal((globalThis as Record<string, unknown>).__migratedKeys, undefined);
+    assert.deepEqual(replaced, []);
+  });
+
+  it('restores access after a reload from the server-reported cookie state, upgrade-only', async () => {
+    installLocalStorage();
+    installWindow('');
+    const store = await loadWidgetStore();
+    const listener = (globalThis as Record<string, unknown>).__keyAccessListener as (a: { widget: boolean; pro: boolean }) => void;
+    assert.equal(typeof listener, 'function', 'widget-store subscribes at load');
+    const changes: number[] = [];
+    store.subscribeWidgetAccess(() => changes.push(1));
+
+    listener({ widget: false, pro: true });
+    assert.equal(store.isProWidgetEnabled(), true);
+    assert.equal(changes.length, 1);
+
+    listener({ widget: false, pro: false });
+    assert.equal(store.isProWidgetEnabled(), true, 'a later false report must not revoke within the tab');
+    assert.equal(changes.length, 1, 'no change, no notification');
   });
 });

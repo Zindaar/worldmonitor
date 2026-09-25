@@ -743,3 +743,81 @@ test('vendor origins cannot mint a session even with a valid privileged cookie',
     assert.equal(response.headers.get('Access-Control-Allow-Origin'), origin);
   }
 });
+
+// ── Held tester-key cookies: reported back and renewed (self-hosted Pro) ──────
+// The cookies are HttpOnly, so after a reload the client can only learn it
+// still holds Pro/widget access from these booleans.
+
+function makeCookieReq(cookie) {
+  return new Request('https://api.worldmonitor.app/api/wm-session', {
+    method: 'POST',
+    headers: { origin: 'https://worldmonitor.app', cookie },
+  });
+}
+
+test('no key cookie reports no access and sets no key cookie', async () => {
+  const resp = await handler(makeReq('POST', { origin: 'https://worldmonitor.app' }));
+  assert.equal(resp.status, 200);
+  const body = await resp.json();
+  assert.equal(body.proAccess, false);
+  assert.equal(body.widgetAccess, false);
+  const joined = setCookies(resp).join('\n');
+  assert.doesNotMatch(joined, /wm-pro-key=/);
+  assert.doesNotMatch(joined, /wm-widget-key=/);
+});
+
+test('a held valid pro cookie is reported and renewed without echoing the key', async () => {
+  const resp = await handler(makeCookieReq('wm-pro-key=pro-secret'));
+  assert.equal(resp.status, 200);
+  const text = await resp.text();
+  assert.doesNotMatch(text, /pro-secret/, 'the key must never appear in the response body');
+  const body = JSON.parse(text);
+  assert.equal(body.proAccess, true);
+  assert.equal(body.widgetAccess, false);
+  const cookies = setCookies(resp);
+  assert.equal(cookieValue(cookies, 'wm-pro-key'), 'pro-secret');
+  assert.match(cookies.join('\n'), /wm-pro-key=pro-secret;.*Max-Age=43200.*HttpOnly/);
+});
+
+test('an enterprise key held as the pro cookie grants proAccess', async () => {
+  const resp = await handler(makeCookieReq('wm-pro-key=enterprise-secret'));
+  const body = await resp.json();
+  assert.equal(body.proAccess, true);
+});
+
+test('a held widget cookie is reported and renewed', async () => {
+  const resp = await handler(makeCookieReq('wm-widget-key=widget-secret'));
+  const body = await resp.json();
+  assert.equal(body.widgetAccess, true);
+  assert.equal(body.proAccess, false);
+  assert.equal(cookieValue(setCookies(resp), 'wm-widget-key'), 'widget-secret');
+});
+
+test('a held pro cookie that no longer validates is reported false and expired', async () => {
+  const resp = await handler(makeCookieReq('wm-pro-key=rotated-away'));
+  assert.equal(resp.status, 200, 'a stale cookie must not fail the anonymous mint');
+  const body = await resp.json();
+  assert.equal(body.proAccess, false);
+  const cookies = setCookies(resp);
+  assert.equal(cookieValue(cookies, 'wm-pro-key'), '', 'no live pro cookie may be re-issued');
+  assert.ok(
+    cookies.some((c) => /^wm-pro-key=;.*Max-Age=0.*Domain=\.worldmonitor\.app/.test(c)),
+    'the stale cookie is expired on the domain it was set on',
+  );
+});
+
+test('a key submitted in the body is reported and not issued twice', async () => {
+  const resp = await handler(new Request('https://api.worldmonitor.app/api/wm-session', {
+    method: 'POST',
+    headers: {
+      origin: 'https://worldmonitor.app',
+      'content-type': 'application/json',
+      cookie: 'wm-pro-key=pro-secret',
+    },
+    body: JSON.stringify({ proKey: 'pro-secret' }),
+  }));
+  const body = await resp.json();
+  assert.equal(body.proAccess, true);
+  const issued = setCookies(resp).filter((c) => c.startsWith('wm-pro-key=pro-secret'));
+  assert.equal(issued.length, 1);
+});

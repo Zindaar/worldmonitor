@@ -25,10 +25,15 @@ import { timingSafeEqualSecret, timingSafeIncludes } from './_crypto.js';
 import { isSessionTokenShape } from './_session.js';
 // @ts-expect-error — JS module, no declaration file
 import { captureSilentError } from './_sentry-edge.js';
+// @ts-expect-error — JS module, no declaration file
+import { getRelayBaseUrl } from './_relay.js';
 import { validateBearerToken } from '../server/auth-session';
 import { getBillingVerificationDenial, getEntitlements } from '../server/_shared/entitlement-check';
 
-const RELAY_BASE = 'https://proxy.worldmonitor.app';
+// WS_RELAY_URL is the relay every other API route already uses. Hard-coding the
+// hosted relay here sent a self-hosted deployment's widget requests — and its
+// WIDGET_AGENT_KEY / PRO_WIDGET_KEY — to the vendor instead of its own relay.
+const RELAY_BASE: string = getRelayBaseUrl() ?? 'https://proxy.worldmonitor.app';
 const WIDGET_AGENT_KEY = process.env.WIDGET_AGENT_KEY ?? '';
 const PRO_WIDGET_KEY = process.env.PRO_WIDGET_KEY ?? '';
 const WORLDMONITOR_VALID_KEYS = (process.env.WORLDMONITOR_VALID_KEYS ?? '')

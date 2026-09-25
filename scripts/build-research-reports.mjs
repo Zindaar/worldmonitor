@@ -14,12 +14,15 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveUmamiScriptSrc, rewriteUmamiScriptTags } from '../shared/umami-script.js';
 
-const UMAMI_SCRIPT_TAG =
+const UMAMI_SCRIPT_TAG = rewriteUmamiScriptTags(
   '<script async defer src="https://abacus.worldmonitor.app/script.js" '
   + 'data-website-id="e8800335-16bc-4241-a133-0eb28c07c832" '
   + 'data-domains="worldmonitor.app,www.worldmonitor.app,happy.worldmonitor.app" '
-  + 'nonce="wm-static-bootstrap"></script>';
+  + 'nonce="wm-static-bootstrap"></script>',
+  resolveUmamiScriptSrc(process.env.VITE_UMAMI_SCRIPT_SRC),
+);
 
 const DATASET_LICENSE = {
   '@type': 'CreativeWork',

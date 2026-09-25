@@ -22,6 +22,7 @@
 //   - Plan: docs/plans/2026-04-17-003-feat-worldmonitor-brief-magazine-plan.md
 
 import { BRIEF_ENVELOPE_VERSION, SUPPORTED_ENVELOPE_VERSIONS } from '../../shared/brief-envelope.js';
+import { resolveUmamiScriptSrc, rewriteUmamiScriptTags } from '../../shared/umami-script.js';
 
 /**
  * @typedef {import('../../shared/brief-envelope.js').BriefEnvelope} BriefEnvelope
@@ -1233,7 +1234,13 @@ const SHARE_SCRIPT = `<script>
 // auth'd route the query carries the sole reader credential (`?t=`, see
 // api/brief/[userId]/[issueDate].ts). Without the attribute the tracker
 // stores that credential with every pageview.
-const UMAMI_LOADER = '<script async src="https://abacus.worldmonitor.app/script.js" data-website-id="e8800335-c853-46a8-8497-c993ed2f58bc" data-exclude-search="true" data-domains="worldmonitor.app,tech.worldmonitor.app,finance.worldmonitor.app,commodity.worldmonitor.app,happy.worldmonitor.app"></script>';
+// Self-hosted deployments set VITE_UMAMI_SCRIPT_SRC=off at runtime and the
+// loader is dropped (shared/umami-script.js). `globalThis.process` because
+// this module also runs where `process` is not defined.
+const UMAMI_LOADER = rewriteUmamiScriptTags(
+  '<script async src="https://abacus.worldmonitor.app/script.js" data-website-id="e8800335-c853-46a8-8497-c993ed2f58bc" data-exclude-search="true" data-domains="worldmonitor.app,tech.worldmonitor.app,finance.worldmonitor.app,commodity.worldmonitor.app,happy.worldmonitor.app"></script>',
+  resolveUmamiScriptSrc(globalThis.process?.env?.VITE_UMAMI_SCRIPT_SRC),
+);
 
 /**
  * U11 telemetry: emit a `brief-thread-open` event whenever a story
