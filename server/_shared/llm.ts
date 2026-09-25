@@ -59,6 +59,24 @@ export interface ProviderCredentialOverrides {
   enableReasoning?: boolean;
 }
 
+// LLM_FREE_MODELS_ONLY: a self-hosted deployment on a metered gateway (Kilo) must never
+// spend credit, so any model whose id does not end in ":free" is refused, not sent.
+export function isLlmModelAllowed(model: string | undefined): boolean {
+  const on = String(process.env.LLM_FREE_MODELS_ONLY || '').trim().toLowerCase();
+  if (!on || on === '0' || on === 'false') return true;
+  return /:free$/.test(String(model || ''));
+}
+
+// A bare host keeps Ollama's /v1 path; a base that carries a path (an OpenAI-compatible
+// gateway such as https://api.kilo.ai/api/gateway) gets /chat/completions appended to it.
+export function ollamaChatCompletionsUrl(baseUrl: string): string {
+  const url = new URL(baseUrl);
+  const path = url.pathname.replace(/[/]+$/, '');
+  if (!path) return new URL('/v1/chat/completions', url).toString();
+  if (!path.endsWith('/chat/completions')) url.pathname = `${path}/chat/completions`;
+  return url.toString();
+}
+
 const OLLAMA_HOST_ALLOWLIST = new Set([
   'localhost', '127.0.0.1', '::1', '[::1]', 'host.docker.internal',
 ]);
@@ -76,6 +94,18 @@ function isLocalDeployment(): boolean {
 // source of truth so a consumer cannot pick up the timeout without the routing.
 
 export function getProviderCredentials(
+  provider: string,
+  overrides: ProviderCredentialOverrides = {},
+): ProviderCredentials | null {
+  const creds = resolveProviderCredentials(provider, overrides);
+  if (creds && !isLlmModelAllowed(creds.model)) {
+    console.warn(`[llm] ${provider} skipped: LLM_FREE_MODELS_ONLY refuses model ${creds.model}`);
+    return null;
+  }
+  return creds;
+}
+
+function resolveProviderCredentials(
   provider: string,
   overrides: ProviderCredentialOverrides = {},
 ): ProviderCredentials | null {
@@ -100,7 +130,7 @@ export function getProviderCredentials(
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
     return {
-      apiUrl: new URL('/v1/chat/completions', baseUrl).toString(),
+      apiUrl: ollamaChatCompletionsUrl(baseUrl),
       model: overrides.model || process.env.OLLAMA_MODEL || 'llama3.1:8b',
       headers,
       extraBody: { think: false },

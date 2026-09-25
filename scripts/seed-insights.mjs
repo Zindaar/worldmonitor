@@ -406,6 +406,24 @@ async function readExistingInsights() {
   return data.result ? unwrapEnvelope(JSON.parse(data.result)).data : null;
 }
 
+// LLM_FREE_MODELS_ONLY: a self-hosted deployment on a metered gateway (Kilo) must never
+// spend credit, so any model whose id does not end in ":free" is refused, not sent.
+function isLlmModelAllowed(model) {
+  const on = String(process.env.LLM_FREE_MODELS_ONLY || '').trim().toLowerCase();
+  if (!on || on === '0' || on === 'false') return true;
+  return /:free$/.test(String(model || ''));
+}
+
+// A bare host keeps Ollama's /v1 path; a base that carries a path (an OpenAI-compatible
+// gateway such as https://api.kilo.ai/api/gateway) gets /chat/completions appended to it.
+function ollamaChatCompletionsUrl(baseUrl) {
+  const url = new URL(baseUrl);
+  const path = url.pathname.replace(/[/]+$/, '');
+  if (!path) return new URL('/v1/chat/completions', url).toString();
+  if (!path.endsWith('/chat/completions')) url.pathname = `${path}/chat/completions`;
+  return url.toString();
+}
+
 // Provider config — mirrors server/_shared/llm.ts getProviderCredentials()
 // Order: Ollama → paid OpenRouter → two fixed free OpenRouter models → Groq.
 // Each free model stays a separate application-validated attempt.
@@ -413,7 +431,7 @@ const LLM_PROVIDERS = [
   {
     name: 'ollama',
     envKey: 'OLLAMA_API_URL',
-    apiUrlFn: (baseUrl) => new URL('/v1/chat/completions', baseUrl).toString(),
+    apiUrlFn: ollamaChatCompletionsUrl,
     model: () => process.env.OLLAMA_MODEL || 'llama3.1:8b',
     headers: (_key) => {
       const h = { 'Content-Type': 'application/json', 'User-Agent': CHROME_UA };
@@ -563,6 +581,10 @@ async function callLLM(headline, options = {}) {
 
     const apiUrl = provider.apiUrlFn ? provider.apiUrlFn(envVal) : provider.apiUrl;
     const model = typeof provider.model === 'function' ? provider.model() : provider.model;
+    if (!isLlmModelAllowed(model)) {
+      console.warn(`[seed-insights] ${provider.name} skipped: LLM_FREE_MODELS_ONLY refuses model ${model}`);
+      continue;
+    }
     // Captured per attempt, BEFORE the request: a correction collected during
     // this attempt's rejection belongs to the NEXT request. The request body
     // and the telemetry both derive from this one variable, so the recorded

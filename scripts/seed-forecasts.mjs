@@ -14943,13 +14943,22 @@ const FORECAST_GENERIC_LLM_PROVIDER_SPEC = Object.freeze({
   defaultTimeout: 60_000,
 });
 
+// LLM_FREE_MODELS_ONLY: a self-hosted deployment on a metered gateway (Kilo) must never
+// spend credit, so any model whose id does not end in ":free" is refused, not sent.
+function isLlmModelAllowed(model) {
+  const on = String(process.env.LLM_FREE_MODELS_ONLY || '').trim().toLowerCase();
+  if (!on || on === '0' || on === 'false') return true;
+  return /:free$/.test(String(model || ''));
+}
+
 function isForecastGenericLlmReady() {
   // All three envs must be present AND non-empty; the contract names only the
   // names of the variables in any debug output, never their values.
   return Boolean(
     process.env.LLM_API_URL
     && process.env.LLM_API_KEY
-    && process.env.LLM_MODEL,
+    && process.env.LLM_MODEL
+    && isLlmModelAllowed(process.env.LLM_MODEL),
   );
 }
 
