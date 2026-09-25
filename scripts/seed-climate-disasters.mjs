@@ -2,6 +2,7 @@
 
 import { loadEnvFile, runSeed, CHROME_UA, verifySeedKey, loadSharedConfig } from './_seed-utils.mjs';
 import { extractCountryCode } from './shared/geo-extract.mjs';
+import { decodeHtmlEntities } from './_html-entities.mjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -17,8 +18,16 @@ const RELIEFWEB_ENDPOINTS = [
   'https://api.reliefweb.int/v2/disasters',
 ];
 
+// Keyless fallback when no approved appname is configured. ReliefWeb's public RSS needs
+// none, and this URL filters to the same five types the API body asks for (flood,
+// tropical cyclone, drought, heat wave, wild fire). The feed carries no status, so an
+// item counts as ongoing while it is younger than RELIEFWEB_RSS_MAX_AGE_MS.
+const RELIEFWEB_DISASTERS_RSS = 'https://reliefweb.int/disasters/rss.xml?advanced-search=%28TY4611.TY4618.TY4672.TY4930.TY4648%29';
+const RELIEFWEB_RSS_MAX_AGE_MS = 180 * 86_400_000;
+
 const RELIEFWEB_TYPE_TO_CANONICAL = {
   FL: 'flood',
+  FF: 'flood',
   TC: 'cyclone',
   DR: 'drought',
   HT: 'heatwave',
@@ -290,12 +299,69 @@ function mapReliefItem(item) {
   };
 }
 
+function rssTag(block, tagName) {
+  const re = new RegExp(`<${tagName}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tagName}>`, 'i');
+  return decodeHtmlEntities((block.match(re) || [])[1]?.trim() || '');
+}
+
+function parseReliefWebDisastersRss(xml, now = Date.now()) {
+  const disasters = [];
+  const itemRe = /<item\b[^>]*>([\s\S]*?)<\/item>/gi;
+  let match;
+  while ((match = itemRe.exec(xml)) !== null) {
+    const block = match[1];
+    const title = rssTag(block, 'title');
+    const link = rssTag(block, 'link');
+    const description = rssTag(block, 'description');
+    const glideMatch = description.match(/Glide:\s*(([A-Z]{2})-\d{4}-\d+-([A-Z]{3}))/);
+    const type = mapReliefType(glideMatch?.[2], title);
+    if (!title || !type) continue;
+
+    const startedAt = parseTimestamp(rssTag(block, 'pubDate'));
+    if (now - startedAt > RELIEFWEB_RSS_MAX_AGE_MS) continue;
+
+    const countryName = (description.match(/Affected countr(?:y|ies):\s*([^<,]+)/) || [])[1] || '';
+    const { country, countryCode } = resolveCountryInfo({
+      iso3: glideMatch?.[3],
+      name: countryName,
+      fallbackText: title,
+    });
+    if (!countryCode) continue;
+    const coords = getCountryCenter(countryCode);
+
+    disasters.push({
+      id: `reliefweb-${glideMatch?.[1] || stableHash(link || title)}`,
+      type,
+      name: normalizeDisasterName(title),
+      country,
+      countryCode,
+      lat: coords.lat,
+      lng: coords.lng,
+      severity: 'medium',
+      startedAt,
+      status: 'ongoing',
+      affectedPopulation: 0,
+      source: 'ReliefWeb',
+      sourceUrl: link,
+    });
+  }
+  return disasters;
+}
+
+async function fetchReliefWebRss() {
+  const response = await fetch(RELIEFWEB_DISASTERS_RSS, {
+    headers: { Accept: 'application/rss+xml, application/xml', 'User-Agent': CHROME_UA },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`ReliefWeb RSS HTTP ${response.status}`);
+  const mapped = parseReliefWebDisastersRss(await response.text());
+  console.log(`  [ReliefWeb] ${mapped.length} disasters from the public RSS feed (no appname)`);
+  return mapped;
+}
+
 async function fetchReliefWeb() {
   const appname = getReliefWebAppname();
-  if (!appname) {
-    console.log('  [ReliefWeb] RELIEFWEB_APPNAME not set, skipping ReliefWeb fetch');
-    return [];
-  }
+  if (!appname) return fetchReliefWebRss();
   console.log(`  [ReliefWeb] Fetching with appname="${appname}"`);
   const requestBodies = buildReliefWebRequestBodies();
 
@@ -485,6 +551,7 @@ export {
   isClimateNaturalEvent,
   findCountryCodeByCoordinates,
   mapNaturalEvent,
+  parseReliefWebDisastersRss,
   toRedisDisaster,
 };
 

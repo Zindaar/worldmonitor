@@ -103,12 +103,13 @@ export function parseRssItems(xml, sourceName) {
   return items;
 }
 
+// Keyless fallback: the same climate theme (4590) as the API query, from ReliefWeb's
+// public RSS, which needs no approved appname.
+export const RELIEFWEB_CLIMATE_RSS = 'https://reliefweb.int/updates/rss.xml?advanced-search=%28T4590%29';
+
 async function fetchReliefWebApi(feed) {
   const appname = (process.env.RELIEFWEB_APPNAME || process.env.RELIEFWEB_APP_NAME || '').trim();
-  if (!appname) {
-    console.warn(`[ClimateNews] RELIEFWEB_APPNAME not set, skipping ${feed.sourceName}`);
-    return [];
-  }
+  if (!appname) return fetchFeed({ sourceName: feed.sourceName, url: RELIEFWEB_CLIMATE_RSS });
   const qs = `appname=${encodeURIComponent(appname)}&limit=20&preset=latest&filter[field]=theme.id&filter[value]=4590&fields[include][]=title&fields[include][]=url_alias&fields[include][]=date.created&fields[include][]=source`;
   const endpoints = [
     `https://api.reliefweb.int/v1/reports?${qs}`,

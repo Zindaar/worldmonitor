@@ -7608,6 +7608,9 @@
       "status": "terms-review",
       "references": [
         {
+          "path": "scripts/seed-climate-disasters.mjs"
+        },
+        {
           "path": "scripts/seed-climate-news.mjs"
         }
       ]
