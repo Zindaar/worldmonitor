@@ -24,6 +24,11 @@ const RELIEFWEB_ENDPOINTS = [
 // item counts as ongoing while it is younger than RELIEFWEB_RSS_MAX_AGE_MS.
 const RELIEFWEB_DISASTERS_RSS = 'https://reliefweb.int/disasters/rss.xml?advanced-search=%28TY4611.TY4618.TY4672.TY4930.TY4648%29';
 const RELIEFWEB_RSS_MAX_AGE_MS = 180 * 86_400_000;
+// ReliefWeb's bot filter (406 'Blocked due to bot activity') rejects, from Node, a browser
+// User-Agent (its TLS fingerprint is not a browser's), any custom agent, and any Accept that
+// names RSS/XML types; a generic command-line agent with Accept */* passes. Measured
+// 2026-09-25 from the cluster: Chrome UA 406 every time, curl and Wget 200 every time.
+export const RELIEFWEB_RSS_UA = 'curl/8.5.0';
 
 const RELIEFWEB_TYPE_TO_CANONICAL = {
   FL: 'flood',
@@ -350,9 +355,7 @@ function parseReliefWebDisastersRss(xml, now = Date.now()) {
 
 async function fetchReliefWebRss() {
   const response = await fetch(RELIEFWEB_DISASTERS_RSS, {
-    // ReliefWeb's bot filter answers 406 to an Accept that names RSS/XML types, even with a
-    // browser User-Agent; a plain */* passes. Measured 2026-09-25 from the cluster.
-    headers: { Accept: '*/*', 'User-Agent': CHROME_UA },
+    headers: { Accept: '*/*', 'User-Agent': RELIEFWEB_RSS_UA },
     signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) throw new Error(`ReliefWeb RSS HTTP ${response.status}`);

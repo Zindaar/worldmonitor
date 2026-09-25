@@ -67,6 +67,14 @@ export function isLlmModelAllowed(model: string | undefined): boolean {
   return /:free$/.test(String(model || ''));
 }
 
+// OLLAMA_EXTRA_BODY: JSON merged into the Ollama-slot request body, for a gateway that needs
+// more than Ollama's think:false, e.g. {"reasoning":{"enabled":false}} for Kilo or OpenRouter,
+// whose free reasoning models otherwise leak their thinking into the answer. Invalid JSON is ignored.
+export function ollamaExtraBody(): Record<string, unknown> {
+  let extra: unknown = {};
+  try { extra = JSON.parse(process.env.OLLAMA_EXTRA_BODY || '{}') || {}; } catch { extra = {}; }
+  return { think: false, ...(typeof extra === 'object' && !Array.isArray(extra) ? extra : {}) };
+}
 // A bare host keeps Ollama's /v1 path; a base that carries a path (an OpenAI-compatible
 // gateway such as https://api.kilo.ai/api/gateway) gets /chat/completions appended to it.
 export function ollamaChatCompletionsUrl(baseUrl: string): string {
@@ -133,7 +141,7 @@ function resolveProviderCredentials(
       apiUrl: ollamaChatCompletionsUrl(baseUrl),
       model: overrides.model || process.env.OLLAMA_MODEL || 'llama3.1:8b',
       headers,
-      extraBody: { think: false },
+      extraBody: ollamaExtraBody(),
     };
   }
 

@@ -9,6 +9,7 @@ import {
   getProviderCredentials,
   isLlmModelAllowed,
   ollamaChatCompletionsUrl,
+  ollamaExtraBody,
 } from '../server/_shared/llm.ts';
 
 const require = createRequire(import.meta.url);
@@ -16,18 +17,18 @@ const { callLLM } = require('../scripts/lib/llm-chain.cjs');
 
 const ENV_KEYS = [
   'LLM_FREE_MODELS_ONLY', 'OLLAMA_API_URL', 'OLLAMA_API_KEY', 'OLLAMA_MODEL',
-  'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'LLM_API_URL', 'LLM_API_KEY', 'LLM_MODEL', 'LOCAL_API_MODE',
+  'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'LLM_API_URL', 'LLM_API_KEY', 'LLM_MODEL', 'LOCAL_API_MODE', 'OLLAMA_EXTRA_BODY',
 ] as const;
 const originalEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 const originalFetch = globalThis.fetch;
 
-let sent: Array<{ url: string; model: string }> = [];
+let sent: Array<{ url: string; model: string; body: Record<string, unknown> }> = [];
 beforeEach(() => {
   for (const k of ENV_KEYS) delete process.env[k];
   sent = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body || '{}'));
-    sent.push({ url: String(input), model: body.model });
+    sent.push({ url: String(input), model: body.model, body });
     return new Response(JSON.stringify({ choices: [{ message: { content: 'disaster' } }] }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
@@ -106,7 +107,7 @@ describe('llm-chain callLLM under LLM_FREE_MODELS_ONLY', () => {
     process.env.LLM_FREE_MODELS_ONLY = 'true';
     const out = await callLLM('sys', 'user', { maxTokens: 20 });
     assert.equal(out, 'disaster');
-    assert.deepEqual(sent, [{ url: 'https://api.kilo.ai/api/gateway/chat/completions', model: 'nvidia/nemotron-3-super-120b-a12b:free' }]);
+    assert.deepEqual(sent.map(({ url, model }) => ({ url, model })), [{ url: 'https://api.kilo.ai/api/gateway/chat/completions', model: 'nvidia/nemotron-3-super-120b-a12b:free' }]);
   });
   it('never sends a request for a paid model', async () => {
     process.env.OLLAMA_MODEL = 'openai/gpt-5.6-luna';
@@ -114,5 +115,33 @@ describe('llm-chain callLLM under LLM_FREE_MODELS_ONLY', () => {
     const out = await callLLM('sys', 'user', { maxTokens: 20 });
     assert.equal(out, null);
     assert.deepEqual(sent, []);
+  });
+});
+
+describe('OLLAMA_EXTRA_BODY', () => {
+  it('defaults to Ollama think:false and merges a gateway body on top', () => {
+    assert.deepEqual(ollamaExtraBody(), { think: false });
+    process.env.OLLAMA_EXTRA_BODY = '{"reasoning":{"enabled":false}}';
+    assert.deepEqual(ollamaExtraBody(), { think: false, reasoning: { enabled: false } });
+  });
+  it('ignores invalid or non-object JSON', () => {
+    process.env.OLLAMA_EXTRA_BODY = 'not json';
+    assert.deepEqual(ollamaExtraBody(), { think: false });
+    process.env.OLLAMA_EXTRA_BODY = '[1,2]';
+    assert.deepEqual(ollamaExtraBody(), { think: false });
+  });
+  it('reaches the request body llm-chain sends', async () => {
+    process.env.OLLAMA_API_URL = 'https://api.kilo.ai/api/gateway';
+    process.env.OLLAMA_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
+    process.env.OLLAMA_EXTRA_BODY = '{"reasoning":{"enabled":false}}';
+    await callLLM('sys', 'user', { maxTokens: 20 });
+    assert.deepEqual(sent[0].body.reasoning, { enabled: false });
+    assert.equal(sent[0].body.think, false);
+  });
+  it('reaches the server credentials', () => {
+    process.env.LOCAL_API_MODE = 'docker';
+    process.env.OLLAMA_API_URL = 'https://api.kilo.ai/api/gateway';
+    process.env.OLLAMA_EXTRA_BODY = '{"reasoning":{"enabled":false}}';
+    assert.deepEqual(getProviderCredentials('ollama')?.extraBody, { think: false, reasoning: { enabled: false } });
   });
 });
