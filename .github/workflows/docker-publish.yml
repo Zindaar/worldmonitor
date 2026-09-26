@@ -32,6 +32,7 @@ jobs:
             build-args: |
               VITE_VARIANT=full
               VITE_UMAMI_SCRIPT_SRC=off
+              VITE_COUNTRY_OVERRIDES_URL=/data/country-boundary-overrides.geojson
           - context: .
             dockerfile: Dockerfile.relay
             image: worldmonitor-ais-relay

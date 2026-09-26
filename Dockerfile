@@ -23,6 +23,9 @@ COPY . .
 # tracker on any surface (shared/umami-script.js). Unset keeps the hosted one.
 # Declared before the corpus step because its page generators emit the tag too.
 ARG VITE_UMAMI_SCRIPT_SRC
+# Self-hosted builds point this at /data/country-boundary-overrides.geojson (same origin);
+# the vendor CDN default is blocked cross-origin (src/services/country-geometry.ts).
+ARG VITE_COUNTRY_OVERRIDES_URL
 
 # The crawlable-corpus step runs the source-attribution drift gate against
 # scripts/, server/, api/, and src/. generate-inventory-facts and

@@ -19,6 +19,7 @@ interface ImportMetaEnv {
   readonly VITE_WS_API_URL?: string;
   /** Umami tracker URL; `off` builds with no tracker (see shared/umami-script.js). */
   readonly VITE_UMAMI_SCRIPT_SRC?: string;
+  readonly VITE_COUNTRY_OVERRIDES_URL?: string;
 }
 
 interface ImportMeta {
